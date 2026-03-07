@@ -15,7 +15,7 @@ import os
 class BiliBarrageSender:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("B站弹幕脚本 v1.0.0")
+        self.root.title("B站弹幕助手 v1.0.0")
         self.root.geometry("800x600")
         
         # 账号管理

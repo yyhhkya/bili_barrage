@@ -15,7 +15,7 @@ import os
 class BiliBarrageSender:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("B站弹幕助手 v1.0.0")
+        self.root.title("B站弹幕助手 v1.1.0")
         self.root.geometry("800x600")
         
         # 账号管理
@@ -90,6 +90,11 @@ class BiliBarrageSender:
         task_frame = ttk.Frame(notebook)
         notebook.add(task_frame, text="定时任务")
         self.create_task_tab(task_frame)
+        
+        # 挂榜标签页
+        watch_frame = ttk.Frame(notebook)
+        notebook.add(watch_frame, text="挂榜")
+        self.create_watch_tab(watch_frame)
         
         # 日志标签页
         log_frame = ttk.Frame(notebook)
@@ -192,6 +197,10 @@ class BiliBarrageSender:
             var = tk.BooleanVar()
             self.account_vars.append((account, var))
             ttk.Checkbutton(self.account_frame, text=account.get("nickname", account.get("remark", "")), variable=var).pack(anchor=tk.W, padx=10, pady=2)
+        
+        # 同步更新在线榜标签页的账号列表
+        if hasattr(self, "watch_account_frame"):
+            self.refresh_watch_accounts()
     
     def create_task_tab(self, parent):
         # 任务列表
@@ -242,6 +251,154 @@ class BiliBarrageSender:
         # 刷新任务列表
         self.refresh_task_list()
     
+    def create_watch_tab(self, parent):
+        # 在线榜设置
+        watch_frame = ttk.LabelFrame(parent, text="在线榜设置")
+        watch_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 房间号
+        room_id_frame = ttk.Frame(watch_frame)
+        room_id_frame.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Label(room_id_frame, text="房间号:", width=10).pack(side=tk.LEFT)
+        self.watch_room_id_var = tk.StringVar()
+        room_id_entry = ttk.Entry(room_id_frame, textvariable=self.watch_room_id_var, width=20)
+        room_id_entry.pack(side=tk.LEFT)
+        # 房间号变化时自动刷新状态
+        self.watch_room_id_var.trace_add("write", lambda *args: self.refresh_watch_status())
+        
+        # 运行状态
+        status_frame = ttk.Frame(watch_frame)
+        status_frame.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Label(status_frame, text="运行状态:", width=10).pack(side=tk.LEFT)
+        self.watch_status_var = tk.StringVar(value="未运行")
+        ttk.Label(status_frame, textvariable=self.watch_status_var, width=20, foreground="blue").pack(side=tk.LEFT)
+        
+        # 选择账号
+        self.watch_account_frame = ttk.LabelFrame(watch_frame, text="选择账号")
+        self.watch_account_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 按钮
+        button_frame = ttk.Frame(watch_frame)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        self.start_watch_button = ttk.Button(button_frame, text="启动挂榜", command=self.start_watch)
+        self.start_watch_button.pack(side=tk.LEFT, padx=5)
+        
+        self.stop_watch_button = ttk.Button(button_frame, text="停止挂榜", command=self.stop_watch)
+        self.stop_watch_button.pack(side=tk.LEFT, padx=5)
+        
+        # 初始化账号选择列表
+        self.refresh_watch_accounts()
+        # 初始化状态显示
+        self.refresh_watch_status()
+    
+    def refresh_watch_accounts(self):
+        # 清空账号选择区域
+        for widget in self.watch_account_frame.winfo_children():
+            widget.destroy()
+        
+        # 全选按钮
+        button_frame = ttk.Frame(self.watch_account_frame)
+        button_frame.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Button(button_frame, text="全选", command=self.select_all_watch_accounts).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消全选", command=self.deselect_all_watch_accounts).pack(side=tk.LEFT, padx=5)
+        
+        # 重新生成账号选择列表
+        self.watch_account_vars = []
+        for account in self.accounts:
+            var = tk.BooleanVar()
+            self.watch_account_vars.append((account, var))
+            account_nickname = account.get("nickname", account.get("remark", ""))
+            ttk.Checkbutton(self.watch_account_frame, text=account_nickname, variable=var).pack(anchor=tk.W, padx=10, pady=2)
+    
+    def select_all_watch_accounts(self):
+        for account, var in self.watch_account_vars:
+            var.set(True)
+    
+    def deselect_all_watch_accounts(self):
+        for account, var in self.watch_account_vars:
+            var.set(False)
+    
+    def refresh_watch_status(self):
+        """刷新挂榜运行状态"""
+        room_id = self.watch_room_id_var.get()
+        if not room_id:
+            self.watch_status_var.set("未运行")
+            return
+        
+        # 检查是否有账号正在挂榜
+        running = False
+        for account, var in self.watch_account_vars:
+            access_key = account["key"]
+            key = f"{access_key}-{room_id}"
+            if key in self.watch_manager.tasks:
+                running = True
+                break
+        
+        if running:
+            self.watch_status_var.set("运行中")
+        else:
+            self.watch_status_var.set("未运行")
+    
+    def start_watch(self):
+        room_id = self.watch_room_id_var.get()
+        if not room_id:
+            messagebox.showinfo("提示", "请填写房间号")
+            return
+        
+        selected_accounts = [account for account, var in self.watch_account_vars if var.get()]
+        if not selected_accounts:
+            messagebox.showinfo("提示", "请至少选择一个账号")
+            return
+        
+        # 在后台线程中启动挂榜，避免阻塞主线程
+        threading.Thread(target=self._start_watch_thread, args=(room_id, selected_accounts), daemon=True).start()
+    
+    def _start_watch_thread(self, room_id, selected_accounts):
+        """在后台线程中启动挂榜"""
+        # 获取直播间主播信息
+        up_id = self.get_room_up_id(room_id)
+        if not up_id:
+            self.root.after(0, lambda: messagebox.showinfo("提示", f"无法获取直播间 {room_id} 的主播信息"))
+            return
+        
+        # 启动挂榜
+        for account in selected_accounts:
+            access_key = account["key"]
+            account_nickname = account.get("nickname", account.get("remark", ""))
+            self.watch_manager.start_watch(access_key, room_id, up_id, account_nickname)
+            time.sleep(1)  # 账号间间隔
+        
+        # 更新状态显示
+        self.root.after(0, lambda: messagebox.showinfo("提示", "挂榜任务已启动"))
+        self.root.after(0, self.refresh_watch_status)
+    
+    def stop_watch(self):
+        room_id = self.watch_room_id_var.get()
+        if not room_id:
+            messagebox.showinfo("提示", "请填写房间号")
+            return
+        
+        selected_accounts = [account for account, var in self.watch_account_vars if var.get()]
+        if not selected_accounts:
+            messagebox.showinfo("提示", "请至少选择一个账号")
+            return
+        
+        # 在后台线程中停止挂榜，避免阻塞主线程
+        threading.Thread(target=self._stop_watch_thread, args=(room_id, selected_accounts), daemon=True).start()
+    
+    def _stop_watch_thread(self, room_id, selected_accounts):
+        """在后台线程中停止挂榜"""
+        # 停止挂榜
+        for account in selected_accounts:
+            access_key = account["key"]
+            self.watch_manager.stop_watch(access_key, room_id)
+            time.sleep(0.5)  # 账号间间隔
+        
+        # 更新状态显示
+        self.root.after(0, lambda: messagebox.showinfo("提示", "挂榜任务已停止"))
+        self.root.after(0, self.refresh_watch_status)
+    
     def create_log_tab(self, parent):
         # 日志文本框
         log_frame = ttk.LabelFrame(parent, text="日志")
@@ -274,7 +431,7 @@ class BiliBarrageSender:
         # 扫码登录按钮
         button_frame = ttk.Frame(dialog)
         button_frame.pack(fill=tk.X, padx=20, pady=10)
-        ttk.Button(button_frame, text="扫码登录", command=lambda: threading.Thread(target=self.scan_login, args=(key_var, nickname_var), daemon=True).start()).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="扫码登录", command=lambda: threading.Thread(target=self.scan_login, args=(key_var, nickname_var, dialog), daemon=True).start()).pack(side=tk.LEFT, padx=5)
         
         # 确定和取消按钮
         def save_account():
@@ -781,7 +938,7 @@ class BiliBarrageSender:
             task["status"] = "运行中"  # 恢复状态
             self.refresh_task_list()
     
-    def scan_login(self, key_var, nickname_var=None):
+    def scan_login(self, key_var, nickname_var=None, dialog=None):
         """扫码登录获取Access Key"""
         try:
             # 检查必要的依赖
@@ -807,7 +964,7 @@ class BiliBarrageSender:
                     f.write(access_key)
                 
                 # 在主线程中更新UI
-                self.root.after(0, lambda: self._update_login_success(key_var, access_key, nickname_var))
+                self.root.after(0, lambda: self._update_login_success(key_var, access_key, nickname_var, dialog))
             else:
                 # 检查是否是用户主动关闭了二维码窗口
                 if self.login_cancelled:
@@ -827,7 +984,7 @@ class BiliBarrageSender:
             if hasattr(self, "login_cancelled"):
                 delattr(self, "login_cancelled")
     
-    def _update_login_success(self, key_var, access_key, nickname_var=None):
+    def _update_login_success(self, key_var, access_key, nickname_var=None, dialog=None):
         """在主线程中更新登录成功的UI"""
         key_var.set(access_key)
         self.log("扫码登录成功，Access Key已自动填入")
@@ -835,10 +992,10 @@ class BiliBarrageSender:
         if nickname_var:
             self.get_user_nickname(key_var, nickname_var)
             # 延迟添加账号，确保昵称已获取
-            self.root.after(1000, lambda: self.auto_add_account(key_var, nickname_var))
+            self.root.after(1000, lambda: self.auto_add_account(key_var, nickname_var, dialog))
         messagebox.showinfo("提示", "扫码登录成功！Access Key已自动填入")
     
-    def auto_add_account(self, key_var, nickname_var):
+    def auto_add_account(self, key_var, nickname_var, dialog=None):
         """自动添加账号"""
         key = key_var.get()
         nickname = nickname_var.get()
@@ -851,8 +1008,14 @@ class BiliBarrageSender:
                 self.refresh_account_list()
                 self.refresh_send_accounts()
                 self.log(f"自动添加账号: {nickname}")
+                # 关闭添加账号窗口
+                if dialog and dialog.winfo_exists():
+                    dialog.destroy()
             else:
                 self.log(f"账号已存在: {nickname}")
+                # 关闭添加账号窗口
+                if dialog and dialog.winfo_exists():
+                    dialog.destroy()
     
     def get_user_nickname(self, key_var, nickname_var):
         """根据Access Key获取用户昵称"""

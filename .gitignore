@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Runtime files
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Copilot
+AGENTS.md
+
+# Project specific
+help.md
+config.json

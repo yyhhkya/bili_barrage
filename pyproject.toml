@@ -1,0 +1,25 @@
+[project]
+name = "bili-barrage"
+version = "2.0.0"
+description = "B站弹幕助手 - WebView 版"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pillow>=12.1.1",
+    "pywebview>=5.4",
+    "pythonnet>=3.0.5",
+    "qrcode>=8.2",
+    "requests>=2.32.5",
+    "schedule>=1.2.0",
+    "websocket-client>=1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.19.0",
+]
+
+[dependency-groups]
+dev = [
+    "playwright>=1.58.0",
+]

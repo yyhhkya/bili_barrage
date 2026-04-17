@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B站弹幕助手</title>
+  <link rel="stylesheet" href="lib/element-plus.css" />
+  <link rel="stylesheet" href="lib/dark.css" />
+  <script src="lib/vue.global.prod.js"></script>
+  <script src="lib/element-plus.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+    .app-layout { display: flex; height: 100vh; overflow: hidden; }
+
+    .sidebar {
+      width: 170px; min-width: 170px;
+      background: var(--el-bg-color-overlay);
+      border-right: 1px solid var(--el-border-color-lighter);
+      display: flex; flex-direction: column;
+    }
+    .sidebar-title {
+      padding: 16px 14px; font-size: 15px; font-weight: 700;
+      color: var(--el-color-primary);
+      border-bottom: 1px solid var(--el-border-color-lighter);
+      text-align: center; letter-spacing: 1px;
+    }
+    .sidebar .el-menu {
+      border-right: none;
+      --el-menu-bg-color: transparent;
+      --el-menu-hover-bg-color: var(--el-fill-color-light);
+    }
+
+    .main-content { flex: 1; overflow-y: auto; padding: 22px 28px; background: var(--el-bg-color); }
+
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; min-height: 36px; }
+    .page-header h2 { margin: 0; font-size: 18px; }
+
+    .el-checkbox-group { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .log-viewer {
+      background: var(--el-bg-color-overlay);
+      border: 1px solid var(--el-border-color-lighter);
+      border-radius: 8px; padding: 14px 16px;
+      height: calc(100vh - 130px);
+      overflow-y: auto;
+      font-family: Consolas, Monaco, "Courier New", monospace;
+      font-size: 12px; line-height: 1.7;
+    }
+    .log-line { white-space: pre-wrap; word-break: break-all; color: var(--el-text-color-regular); }
+    .log-empty { color: var(--el-text-color-placeholder); text-align: center; padding: 40px; }
+
+    .el-card { --el-card-bg-color: var(--el-bg-color-overlay); }
+    .mb-8 { margin-bottom: 8px; }
+    .el-table { width: 100% !important; }
+    .el-table th .cell { white-space: nowrap; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-title">B站弹幕助手</div>
+      <el-menu :default-active="activePage" @select="activePage = $event">
+        <el-menu-item index="accounts">👤 账号管理</el-menu-item>
+        <el-menu-item index="send">💬 发送弹幕</el-menu-item>
+        <el-menu-item index="likes">👍 点赞</el-menu-item>
+        <el-menu-item index="watch">📺 挂榜</el-menu-item>
+        <el-menu-item index="tasks">⏰ 定时任务</el-menu-item>
+        <el-menu-item index="logs">📋 日志</el-menu-item>
+      </el-menu>
+    </div>
+
+    <!-- Main -->
+    <div class="main-content">
+
+      <!-- 账号管理 -->
+      <div v-show="activePage==='accounts'">
+        <div class="page-header">
+          <h2>账号管理</h2>
+          <div>
+            <el-button type="primary" @click="showAddAccount">＋ 添加账号</el-button>
+            <el-button @click="startScanLogin">📱 扫码登录</el-button>
+          </div>
+        </div>
+        <el-table :data="accounts" stripe>
+          <el-table-column type="index" label="#" width="50"></el-table-column>
+          <el-table-column prop="nickname" label="昵称"></el-table-column>
+          <el-table-column label="Key">
+            <template #default="{ row }">
+              <span style="font-family:monospace;font-size:12px">{{ row.key.slice(0,10) }}…</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="160" align="center">
+            <template #default="{ $index }">
+              <el-button size="small" @click="showEditAccount($index)">编辑</el-button>
+              <el-button size="small" type="danger" @click="deleteAccount($index)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 发送弹幕 -->
+      <div v-show="activePage==='send'">
+        <div class="page-header">
+          <h2>发送弹幕</h2>
+        </div>
+        <el-card shadow="never">
+          <el-form label-width="80px">
+            <el-form-item label="房间号">
+              <el-input v-model="sendForm.roomId" placeholder="输入直播间房间号" style="max-width:300px"></el-input>
+            </el-form-item>
+            <el-form-item label="弹幕内容">
+              <el-input v-model="sendForm.content" placeholder="输入要发送的弹幕"></el-input>
+            </el-form-item>
+            <el-form-item label="选择账号">
+              <div class="mb-8">
+                <el-button size="small" @click="sendForm.selected=accounts.map((_,i)=>i)">全选</el-button>
+                <el-button size="small" @click="sendForm.selected=[]">取消全选</el-button>
+              </div>
+              <el-checkbox-group v-model="sendForm.selected">
+                <el-checkbox v-for="(acc,i) in accounts" :key="i" :label="i">{{ acc.nickname }}</el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="sendDanmaku">🚀 发送弹幕</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </div>
+
+      <!-- 点赞 -->
+      <div v-show="activePage==='likes'">
+        <div class="page-header">
+          <h2>点赞</h2>
+        </div>
+        <el-card shadow="never">
+          <el-form label-width="80px">
+            <el-form-item label="房间号">
+              <el-input v-model="likeForm.roomId" placeholder="输入直播间房间号" style="max-width:300px"></el-input>
+            </el-form-item>
+            <el-form-item label="点赞次数">
+              <el-input-number v-model="likeForm.clickTime" :min="1" :max="1000" :step="10"></el-input-number>
+            </el-form-item>
+            <el-form-item label="选择账号">
+              <div class="mb-8">
+                <el-button size="small" @click="likeForm.selected=accounts.map((_,i)=>i)">全选</el-button>
+                <el-button size="small" @click="likeForm.selected=[]">取消全选</el-button>
+              </div>
+              <el-checkbox-group v-model="likeForm.selected">
+                <el-checkbox v-for="(acc,i) in accounts" :key="i" :label="i">{{ acc.nickname }}</el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="sendLikes">👍 开始点赞</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </div>
+
+      <!-- 定时任务 -->
+      <div v-show="activePage==='tasks'">
+        <div class="page-header">
+          <h2>定时任务</h2>
+          <el-button type="primary" @click="showAddTask">＋ 添加任务</el-button>
+        </div>
+        <el-table :data="tasks" stripe>
+          <el-table-column prop="room_remark" label="备注" width="110" show-overflow-tooltip></el-table-column>
+          <el-table-column prop="room_id" label="房间号" width="100"></el-table-column>
+          <el-table-column prop="content" label="弹幕内容" show-overflow-tooltip></el-table-column>
+          <el-table-column label="间隔" width="70" align="center">
+            <template #default="{ row }">{{ row.interval }}分</template>
+          </el-table-column>
+          <el-table-column label="账号" width="160">
+            <template #default="{ row }">
+              <el-tag v-for="a in row.accounts" :key="a" size="small" style="margin:2px" disable-transitions>{{ a }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="80" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.status==='运行中'?'success':row.status==='停止'?'info':'warning'" size="small">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="280" align="center">
+            <template #default="{ $index, row }">
+              <div style="display:flex;gap:4px;justify-content:center;flex-wrap:nowrap">
+                <el-button size="small" type="success" :disabled="row.status==='运行中'" @click="startTask($index)">启动</el-button>
+                <el-button size="small" type="warning" :disabled="row.status==='停止'" @click="stopTask($index)">停止</el-button>
+                <el-button size="small" @click="showEditTask($index)">编辑</el-button>
+                <el-button size="small" type="danger" @click="deleteTask($index)">删除</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 挂榜 -->
+      <div v-show="activePage==='watch'">
+        <div class="page-header">
+          <h2>挂榜</h2>
+        </div>
+        <el-card shadow="never">
+          <el-form label-width="80px">
+            <el-form-item label="房间号">
+              <el-input v-model="watchForm.roomId" placeholder="输入直播间房间号" style="max-width:300px"></el-input>
+            </el-form-item>
+            <el-form-item label="选择账号">
+              <div class="mb-8">
+                <el-button size="small" @click="watchForm.selected=accounts.map((_,i)=>i)">全选</el-button>
+                <el-button size="small" @click="watchForm.selected=[]">取消全选</el-button>
+              </div>
+              <el-checkbox-group v-model="watchForm.selected">
+                <el-checkbox v-for="(acc,i) in accounts" :key="i" :label="i">{{ acc.nickname }}</el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="success" @click="startWatch">▶ 开始挂榜</el-button>
+              <el-button type="danger" @click="stopWatch">⏹ 停止挂榜</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <div style="margin-top:18px" v-if="watchStatus.length">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <h3 style="margin:0;font-size:15px">当前挂榜状态</h3>
+            <el-button size="small" @click="watchGroupBy=watchGroupBy==='account'?'room':'account'">
+              {{ watchGroupBy==='account' ? '切换为按直播间分组' : '切换为按账号分组' }}
+            </el-button>
+          </div>
+          <!-- 按账号分组 -->
+          <template v-if="watchGroupBy==='account'">
+            <el-card v-for="(rooms, acct) in watchByAccount" :key="acct" shadow="never" style="margin-bottom:8px">
+              <template #header><span style="font-weight:600">👤 {{ acct }}</span></template>
+              <el-tag v-for="r in rooms" :key="r" style="margin:2px 4px" type="success">{{ r }}</el-tag>
+            </el-card>
+          </template>
+          <!-- 按直播间分组 -->
+          <template v-else>
+            <el-card v-for="(accts, room) in watchByRoom" :key="room" shadow="never" style="margin-bottom:8px">
+              <template #header><span style="font-weight:600">📺 直播间 {{ room }}</span></template>
+              <el-tag v-for="a in accts" :key="a" style="margin:2px 4px">{{ a }}</el-tag>
+            </el-card>
+          </template>
+        </div>
+        <div v-else style="margin-top:18px;color:var(--el-text-color-placeholder);text-align:center;padding:20px">
+          暂无挂榜任务
+        </div>
+      </div>
+
+      <!-- 日志 -->
+      <div v-show="activePage==='logs'">
+        <div class="page-header">
+          <h2>日志</h2>
+          <el-button size="small" @click="logs=[]">清空</el-button>
+        </div>
+        <div class="log-viewer" ref="logViewerRef">
+          <div v-for="(l,i) in logs" :key="i" class="log-line">{{ l }}</div>
+          <div v-if="!logs.length" class="log-empty">暂无日志</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 账号对话框 -->
+  <el-dialog v-model="accountDlg.visible" :title="accountDlg.index>=0?'编辑账号':'添加账号'" width="440px" destroy-on-close>
+    <el-form label-width="60px">
+      <el-form-item label="昵称">
+        <el-input v-model="accountDlg.nickname" placeholder="输入账号昵称"></el-input>
+      </el-form-item>
+      <el-form-item label="Key">
+        <el-input v-model="accountDlg.key" placeholder="输入 access_key"></el-input>
+        <el-button v-if="accountDlg.index<0 && accountDlg.key" size="small" style="margin-top:8px" @click="autoGetNickname">自动获取昵称</el-button>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="accountDlg.visible=false">取消</el-button>
+      <el-button type="primary" @click="saveAccount">确定</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 扫码登录对话框 -->
+  <el-dialog v-model="qrDlg.visible" title="扫码登录" width="320px" :close-on-click-modal="false" @close="onQrClose">
+    <div style="text-align:center">
+      <img v-if="qrDlg.image" :src="'data:image/png;base64,'+qrDlg.image" style="width:200px;height:200px" />
+      <p style="margin-top:12px;color:var(--el-text-color-secondary)">{{ qrDlg.status }}</p>
+    </div>
+  </el-dialog>
+
+  <!-- 任务对话框 -->
+  <el-dialog v-model="taskDlg.visible" :title="taskDlg.index>=0?'编辑任务':'添加任务'" width="520px" destroy-on-close>
+    <el-form label-width="80px">
+      <el-form-item label="备注">
+        <el-input v-model="taskDlg.remark" placeholder="任务备注（可选）"></el-input>
+      </el-form-item>
+      <el-form-item label="房间号">
+        <el-input v-model="taskDlg.roomId" placeholder="直播间房间号"></el-input>
+      </el-form-item>
+      <el-form-item label="弹幕内容">
+        <el-input v-model="taskDlg.content" type="textarea" :rows="3" placeholder="多条弹幕用英文逗号分隔"></el-input>
+      </el-form-item>
+      <el-form-item label="间隔(分)">
+        <el-input-number v-model="taskDlg.interval" :min="1" :max="1440"></el-input-number>
+      </el-form-item>
+      <el-form-item label="选择账号">
+        <div class="mb-8">
+          <el-button size="small" @click="taskDlg.selected=accounts.map((_,i)=>i)">全选</el-button>
+          <el-button size="small" @click="taskDlg.selected=[]">取消全选</el-button>
+        </div>
+        <el-checkbox-group v-model="taskDlg.selected">
+          <el-checkbox v-for="(acc,i) in accounts" :key="i" :label="i">{{ acc.nickname }}</el-checkbox>
+        </el-checkbox-group>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="taskDlg.visible=false">取消</el-button>
+      <el-button type="primary" @click="saveTask">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
+const { ElMessage, ElMessageBox } = ElementPlus;
+
+const app = createApp({
+  setup() {
+    const activePage = ref('accounts');
+    const accounts = ref([]);
+    const tasks = ref([]);
+    const logs = ref([]);
+    const logViewerRef = ref(null);
+
+    const sendForm = reactive({ roomId: '', content: '', selected: [] });
+    const likeForm = reactive({ roomId: '', clickTime: 30, selected: [] });
+    const watchForm = reactive({ roomId: '', selected: [] });
+    const watchStatus = ref([]);
+    const watchGroupBy = ref('account');
+    const accountDlg = reactive({ visible: false, index: -1, nickname: '', key: '' });
+    const qrDlg = reactive({ visible: false, image: '', status: '正在获取二维码…' });
+    const taskDlg = reactive({ visible: false, index: -1, remark: '', roomId: '', content: '', interval: 5, selected: [] });
+
+    async function api(method, ...args) {
+      while (!window.pywebview || !window.pywebview.api) await new Promise(r => setTimeout(r, 100));
+      return window.pywebview.api[method](...args);
+    }
+    function toast(msg, type = 'success') { ElMessage({ message: msg, type, duration: 3000 }); }
+
+    const watchByAccount = computed(() => {
+      const m = {};
+      for (const item of watchStatus.value) {
+        if (!m[item.account]) m[item.account] = [];
+        m[item.account].push(item.room_id);
+      }
+      return m;
+    });
+    const watchByRoom = computed(() => {
+      const m = {};
+      for (const item of watchStatus.value) {
+        if (!m[item.room_id]) m[item.room_id] = [];
+        m[item.room_id].push(item.account);
+      }
+      return m;
+    });
+
+    let stateTimer, logTimer;
+    async function refreshState() {
+      try {
+        const raw = await api('get_state');
+        const s = JSON.parse(raw);
+        accounts.value = s.accounts;
+        tasks.value = s.tasks;
+        const ws = await api('get_watch_status');
+        watchStatus.value = JSON.parse(ws);
+      } catch {}
+    }
+    async function pollLogs() {
+      try {
+        const arr = await api('get_new_logs');
+        if (arr && arr.length) {
+          logs.value.push(...arr);
+          await nextTick();
+          const el = logViewerRef.value;
+          if (el) el.scrollTop = el.scrollHeight;
+        }
+      } catch {}
+    }
+
+    /* Accounts */
+    function showAddAccount() { Object.assign(accountDlg, { visible: true, index: -1, nickname: '', key: '' }); }
+    function showEditAccount(i) {
+      const a = accounts.value[i];
+      Object.assign(accountDlg, { visible: true, index: i, nickname: a.nickname, key: a.key });
+    }
+    async function saveAccount() {
+      if (!accountDlg.nickname || !accountDlg.key) return toast('请填写昵称和Key', 'error');
+      if (accountDlg.index >= 0) await api('edit_account', accountDlg.index, accountDlg.nickname, accountDlg.key);
+      else await api('add_account', accountDlg.nickname, accountDlg.key);
+      accountDlg.visible = false;
+      await refreshState();
+      toast('账号已保存');
+    }
+    async function deleteAccount(i) {
+      try {
+        await ElMessageBox.confirm('确定要删除这个账号吗？', '确认', { type: 'warning' });
+        await api('delete_account', i);
+        await refreshState();
+        toast('账号已删除');
+      } catch {}
+    }
+    async function autoGetNickname() {
+      if (!accountDlg.key) return toast('请先输入Key', 'error');
+      toast('正在获取昵称…', 'info');
+      const name = await api('get_nickname', accountDlg.key);
+      if (name) { accountDlg.nickname = name; toast('获取成功'); }
+      else toast('获取昵称失败', 'error');
+    }
+
+    /* QR Login */
+    let qrTimer = null;
+    async function startScanLogin() {
+      qrDlg.image = ''; qrDlg.status = '正在获取二维码…'; qrDlg.visible = true;
+      const img = await api('start_scan_login');
+      if (!img) { toast('获取二维码失败', 'error'); qrDlg.visible = false; return; }
+      qrDlg.image = img;
+      qrDlg.status = '请使用哔哩哔哩App扫描二维码';
+      qrTimer = setInterval(async () => {
+        const r = await api('poll_login');
+        if (r === 'pending') return;
+        clearInterval(qrTimer); qrTimer = null;
+        if (r === 'failed') { toast('登录失败或已取消', 'error'); qrDlg.visible = false; return; }
+        const nick = await api('get_nickname', r) || '未知用户';
+        await api('add_account', nick, r);
+        await refreshState();
+        qrDlg.visible = false;
+        toast('登录成功: ' + nick);
+      }, 2500);
+    }
+    function onQrClose() {
+      if (qrTimer) { clearInterval(qrTimer); qrTimer = null; }
+      api('cancel_login');
+    }
+
+    /* Send */
+    async function sendDanmaku() {
+      if (!sendForm.roomId || !sendForm.content) return toast('请填写房间号和弹幕内容', 'error');
+      if (!sendForm.selected.length) return toast('请至少选择一个账号', 'error');
+      await api('send_danmaku', sendForm.roomId, sendForm.content, JSON.stringify(sendForm.selected));
+      toast('弹幕发送指令已提交');
+    }
+
+    /* Likes */
+    async function sendLikes() {
+      if (!likeForm.roomId) return toast('请填写房间号', 'error');
+      if (!likeForm.selected.length) return toast('请至少选择一个账号', 'error');
+      await api('send_likes', likeForm.roomId, likeForm.clickTime, JSON.stringify(likeForm.selected));
+      toast('点赞指令已提交');
+    }
+
+    /* Tasks */
+    function showAddTask() {
+      Object.assign(taskDlg, { visible: true, index: -1, remark: '', roomId: '', content: '', interval: 5, selected: [] });
+    }
+    function showEditTask(i) {
+      const t = tasks.value[i];
+      Object.assign(taskDlg, {
+        visible: true, index: i, remark: t.room_remark || '', roomId: t.room_id,
+        content: t.content, interval: t.interval,
+        selected: (t.accounts || []).map(n => accounts.value.findIndex(a => a.nickname === n)).filter(x => x >= 0),
+      });
+    }
+    async function saveTask() {
+      if (!taskDlg.roomId || !taskDlg.content) return toast('请填写房间号和弹幕内容', 'error');
+      if (!taskDlg.selected.length) return toast('请至少选择一个账号', 'error');
+      const args = [taskDlg.remark, taskDlg.roomId, taskDlg.content, taskDlg.interval, JSON.stringify(taskDlg.selected)];
+      if (taskDlg.index >= 0) await api('edit_task', taskDlg.index, ...args);
+      else await api('add_task', ...args);
+      taskDlg.visible = false;
+      await refreshState();
+      toast('任务已保存');
+    }
+    async function deleteTask(i) {
+      try {
+        await ElMessageBox.confirm('确定要删除这个任务吗？', '确认', { type: 'warning' });
+        await api('delete_task', i);
+        await refreshState();
+        toast('任务已删除');
+      } catch {}
+    }
+    async function startTask(i) { await api('start_task', i); toast('任务启动中…'); setTimeout(refreshState, 2000); }
+    async function stopTask(i) { await api('stop_task', i); toast('任务停止中…'); setTimeout(refreshState, 2000); }
+
+    /* Watch */
+    async function startWatch() {
+      if (!watchForm.roomId) return toast('请填写房间号', 'error');
+      if (!watchForm.selected.length) return toast('请至少选择一个账号', 'error');
+      await api('start_watch', watchForm.roomId, JSON.stringify(watchForm.selected));
+      toast('挂榜启动中…');
+    }
+    async function stopWatch() {
+      if (!watchForm.roomId) return toast('请填写房间号', 'error');
+      if (!watchForm.selected.length) return toast('请至少选择一个账号', 'error');
+      await api('stop_watch', watchForm.roomId, JSON.stringify(watchForm.selected));
+      toast('挂榜已停止');
+    }
+
+    onMounted(async () => {
+      await refreshState();
+      stateTimer = setInterval(refreshState, 5000);
+      logTimer = setInterval(pollLogs, 500);
+    });
+    onUnmounted(() => { clearInterval(stateTimer); clearInterval(logTimer); });
+
+    return {
+      activePage, accounts, tasks, logs, logViewerRef,
+      sendForm, likeForm, watchForm, watchStatus, watchGroupBy, watchByAccount, watchByRoom,
+      accountDlg, qrDlg, taskDlg,
+      showAddAccount, showEditAccount, saveAccount, deleteAccount, autoGetNickname,
+      startScanLogin, onQrClose,
+      sendDanmaku, sendLikes,
+      showAddTask, showEditTask, saveTask, deleteTask, startTask, stopTask,
+      startWatch, stopWatch,
+    };
+  }
+});
+app.use(ElementPlus);
+app.mount('#app');
+</script>
+</body>
+</html>

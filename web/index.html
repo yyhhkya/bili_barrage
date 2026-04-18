@@ -156,7 +156,7 @@
                 <el-button size="small" @click="likeForm.selected=[]">取消全选</el-button>
               </div>
               <el-checkbox-group v-model="likeForm.selected">
-                <el-checkbox v-for="(acc,i) in accounts" :key="i" :label="i">{{ acc.nickname }}</el-checkbox>
+                <el-checkbox v-for="(acc,i) in accounts" :key="i" :label="i">{{ acc.nickname }}<el-tag v-if="likeTotalMap[acc.nickname]" size="small" :type="likeTotalMap[acc.nickname].total >= 5000 ? 'danger' : 'info'" style="margin-left:6px" disable-transitions>今日 {{ likeTotalMap[acc.nickname].total }} 次</el-tag><el-tag v-if="likeForm.roomId && likeCounts[acc.key] != null" size="small" type="warning" style="margin-left:4px" disable-transitions>本房 {{ likeCounts[acc.key] }} 次</el-tag></el-checkbox>
               </el-checkbox-group>
             </el-form-item>
             <el-form-item>
@@ -164,6 +164,7 @@
             </el-form-item>
           </el-form>
         </el-card>
+
       </div>
 
       <!-- 定时任务 -->
@@ -332,8 +333,18 @@
       <p>当前版本：<strong>v{{ updateInfo.current_version }}</strong></p>
       <p>最新版本：<strong style="color:var(--el-color-warning)">v{{ updateInfo.latest_version }}</strong></p>
       <div v-if="updateInfo.body" style="margin-top:12px">
-        <p style="font-weight:600;margin-bottom:6px">更新说明：</p>
+        <p style="font-weight:600;margin-bottom:6px">更新内容：</p>
         <div style="background:var(--el-fill-color);border-radius:6px;padding:12px;font-size:13px;white-space:pre-wrap;max-height:200px;overflow-y:auto">{{ updateInfo.body }}</div>
+      </div>
+      <div v-else-if="updateInfo.commits && updateInfo.commits.length" style="margin-top:12px">
+        <p style="font-weight:600;margin-bottom:6px">更新内容：</p>
+        <div style="background:var(--el-fill-color);border-radius:6px;padding:12px;font-size:13px;max-height:200px;overflow-y:auto">
+          <div v-for="(c, i) in updateInfo.commits" :key="i" style="margin-bottom:6px;line-height:1.6">
+            <span style="color:var(--el-text-color-secondary)">{{ c.date }}</span>
+            <el-tag size="small" type="success" style="margin:0 6px;font-family:monospace" disable-transitions>{{ c.sha }}</el-tag>
+            <span>{{ c.message }}</span>
+          </div>
+        </div>
       </div>
       <div v-if="updateDlg.downloading" style="margin-top:16px">
         <el-progress :percentage="updateDlg.percent" :status="updateDlg.progressStatus" :stroke-width="20" :text-inside="true" style="margin-bottom:8px"></el-progress>
@@ -343,13 +354,26 @@
     <template #footer>
       <el-button @click="updateDlg.visible=false" :disabled="updateDlg.downloading">稍后再说</el-button>
       <el-button type="warning" @click="openUpdateUrl" :disabled="updateDlg.downloading">前往 GitHub</el-button>
-      <el-button type="primary" @click="downloadUpdate" :loading="updateDlg.downloading">立即更新</el-button>
+      <el-button type="primary" @click="showMirrorDlg" :loading="updateDlg.downloading">立即更新</el-button>
     </template>
+  </el-dialog>
+
+  <el-dialog v-model="mirrorDlg.visible" title="选择下载线路" width="420px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px">
+      <el-button v-for="(m, i) in mirrorDlg.mirrors" :key="i"
+        :type="m.status === 'ok' ? 'primary' : m.status === 'error' ? 'danger' : 'info'"
+        @click="downloadUpdate(m.prefix)" plain>
+        {{ m.name }}
+        <span v-if="m.status === 'ok'" style="margin-left:4px;opacity:0.7">{{ m.latency }}ms</span>
+        <span v-else-if="m.status === 'error'" style="margin-left:4px;opacity:0.7">超时</span>
+        <span v-else-if="m.status === 'testing'" style="margin-left:4px;opacity:0.7">检测中…</span>
+      </el-button>
+    </div>
   </el-dialog>
 </div>
 
 <script>
-const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
+const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 const app = createApp({
@@ -368,12 +392,18 @@ const app = createApp({
     const accountDlg = reactive({ visible: false, index: -1, nickname: '', key: '' });
     const qrDlg = reactive({ visible: false, image: '', status: '正在获取二维码…' });
     const taskDlg = reactive({ visible: false, index: -1, remark: '', roomId: '', content: '', interval: 5, selected: [] });
-    const updateInfo = reactive({ has_update: false, latest_version: '', current_version: '', url: '', body: '' });
+    const likeCounts = ref({});
+    const updateInfo = reactive({ has_update: false, latest_version: '', current_version: '', url: '', body: '', commits: [] });
     const updateDlg = reactive({ visible: false, downloading: false, percent: 0, message: '', progressStatus: '' });
+    const mirrorDlg = reactive({ visible: false, mirrors: [] });
     const currentVersion = ref('');
 
+    const pywebviewReady = new Promise(resolve => {
+      if (window.pywebview && window.pywebview.api) return resolve();
+      window.addEventListener('pywebviewready', resolve, { once: true });
+    });
     async function api(method, ...args) {
-      while (!window.pywebview || !window.pywebview.api) await new Promise(r => setTimeout(r, 100));
+      await pywebviewReady;
       return window.pywebview.api[method](...args);
     }
     function toast(msg, type = 'success') { ElMessage({ message: msg, type, duration: 3000 }); }
@@ -398,13 +428,16 @@ const app = createApp({
     let stateTimer, logTimer;
     async function refreshState() {
       try {
-        const raw = await api('get_state');
+        const [raw, ws] = await Promise.all([
+          api('get_state'),
+          api('get_watch_status'),
+        ]);
         const s = JSON.parse(raw);
         accounts.value = s.accounts;
         tasks.value = s.tasks;
         if (s.version) currentVersion.value = s.version;
-        const ws = await api('get_watch_status');
         watchStatus.value = JSON.parse(ws);
+        fetchLikeTotals();
       } catch {}
     }
     async function pollLogs() {
@@ -483,11 +516,36 @@ const app = createApp({
     }
 
     /* Likes */
+    const likeTotals = ref([]);
+    const likeTotalMap = computed(() => {
+      const m = {};
+      likeTotals.value.forEach(t => { m[t.nickname] = t; });
+      return m;
+    });
+    async function fetchLikeCounts() {
+      if (!likeForm.roomId) { likeCounts.value = {}; return; }
+      try {
+        const raw = await api('get_like_counts', likeForm.roomId);
+        likeCounts.value = JSON.parse(raw);
+      } catch { likeCounts.value = {}; }
+    }
+    async function fetchLikeTotals() {
+      try {
+        const raw = await api('get_like_counts_total');
+        likeTotals.value = JSON.parse(raw);
+      } catch { likeTotals.value = []; }
+    }
+    let likeCountsDebounce = null;
+    watch(() => likeForm.roomId, () => {
+      clearTimeout(likeCountsDebounce);
+      likeCountsDebounce = setTimeout(fetchLikeCounts, 500);
+    });
     async function sendLikes() {
       if (!likeForm.roomId) return toast('请填写房间号', 'error');
       if (!likeForm.selected.length) return toast('请至少选择一个账号', 'error');
       await api('send_likes', likeForm.roomId, likeForm.clickTime, JSON.stringify(likeForm.selected));
       toast('点赞指令已提交');
+      setTimeout(() => { fetchLikeCounts(); fetchLikeTotals(); }, 3000);
     }
 
     /* Tasks */
@@ -545,24 +603,39 @@ const app = createApp({
         Object.assign(updateInfo, info);
         if (info.current_version) currentVersion.value = info.current_version;
         if (info.has_update) {
-          toast('发现新版本 v' + info.latest_version, 'warning');
+          updateDlg.visible = true;
         }
       } catch {}
     }
-    function showUpdateDialog() { updateDlg.visible = true; }
+    function showUpdateDialog() {
+      updateDlg.visible = true;
+    }
+    async function showMirrorDlg() {
+      mirrorDlg.visible = true;
+      mirrorDlg.mirrors = JSON.parse(await api('get_mirror_results')).map(
+        m => ({...m, status: 'testing', latency: -1})
+      );
+      await api('test_mirrors');
+      const mirrorTimer = setInterval(async () => {
+        try {
+          const raw = await api('get_mirror_results');
+          mirrorDlg.mirrors = JSON.parse(raw);
+          if (mirrorDlg.mirrors.every(m => m.status !== 'testing')) clearInterval(mirrorTimer);
+        } catch {}
+      }, 500);
+    }
     function openUpdateUrl() {
       if (updateInfo.url) window.open(updateInfo.url, '_blank');
     }
-    async function downloadUpdate() {
+    async function downloadUpdate(mirrorPrefix) {
       try {
-        await ElMessageBox.confirm('将下载最新版本并自动重启应用，确定继续吗？', '确认更新', { type: 'warning' });
+        mirrorDlg.visible = false;
         updateDlg.downloading = true;
         updateDlg.percent = 0;
         updateDlg.message = '准备下载...';
         updateDlg.progressStatus = '';
-        await api('download_update');
+        await api('download_update', mirrorPrefix || '');
 
-        // 轮询下载进度
         const progressTimer = setInterval(async () => {
           try {
             const raw = await api('get_update_progress');
@@ -586,7 +659,7 @@ const app = createApp({
     }
 
     onMounted(async () => {
-      await refreshState();
+      refreshState();
       checkUpdate();
       stateTimer = setInterval(refreshState, 5000);
       logTimer = setInterval(pollLogs, 500);
@@ -595,14 +668,14 @@ const app = createApp({
 
     return {
       activePage, accounts, tasks, logs, logViewerRef,
-      sendForm, likeForm, watchForm, watchStatus, watchGroupBy, watchByAccount, watchByRoom,
-      accountDlg, qrDlg, taskDlg, updateInfo, updateDlg, currentVersion,
+      sendForm, likeForm, likeCounts, likeTotals, likeTotalMap, watchForm, watchStatus, watchGroupBy, watchByAccount, watchByRoom,
+      accountDlg, qrDlg, taskDlg, updateInfo, updateDlg, mirrorDlg, currentVersion,
       showAddAccount, showEditAccount, saveAccount, deleteAccount, autoGetNickname,
       startScanLogin, onQrClose,
-      sendDanmaku, sendLikes,
+      sendDanmaku, sendLikes, fetchLikeCounts, fetchLikeTotals,
       showAddTask, showEditTask, saveTask, deleteTask, startTask, stopTask,
       startWatch, stopWatch,
-      checkUpdate, showUpdateDialog, openUpdateUrl, downloadUpdate,
+      checkUpdate, showUpdateDialog, showMirrorDlg, openUpdateUrl, downloadUpdate,
     };
   }
 });

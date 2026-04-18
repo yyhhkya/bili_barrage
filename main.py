@@ -108,6 +108,12 @@ class Api:
             daemon=True,
         ).start()
 
+    def get_like_counts(self, room_id):
+        return json.dumps(self.app.get_like_counts(room_id), ensure_ascii=False)
+
+    def get_like_counts_total(self):
+        return json.dumps(self.app.get_like_counts_total(), ensure_ascii=False)
+
     # ---- Tasks ----
     def add_task(self, remark, room_id, content, interval, account_indices_json):
         indices = json.loads(account_indices_json)
@@ -213,8 +219,14 @@ class Api:
     def check_update(self):
         return self.app.check_update()
 
-    def download_update(self):
-        threading.Thread(target=self.app.download_and_apply_update, daemon=True).start()
+    def download_update(self, mirror_prefix=''):
+        threading.Thread(target=self.app.download_and_apply_update, args=(mirror_prefix,), daemon=True).start()
+
+    def test_mirrors(self):
+        threading.Thread(target=self.app._test_mirrors, daemon=True).start()
+
+    def get_mirror_results(self):
+        return json.dumps(self.app._mirror_results, ensure_ascii=False)
 
     def get_update_progress(self):
         return json.dumps(self.app._update_progress, ensure_ascii=False)
@@ -253,6 +265,19 @@ class BiliBarrageSender:
 
         # 更新下载进度: {"percent": 0-100, "status": "idle"|"downloading"|"done"|"error", "message": ""}
         self._update_progress = {"percent": 0, "status": "idle", "message": ""}
+
+        # 镜像站测速
+        self.MIRRORS = [
+            {"name": "GitHub 直连", "prefix": ""},
+            {"name": "gh-proxy.org", "prefix": "https://gh-proxy.org/"},
+            {"name": "ghproxy.net", "prefix": "https://ghproxy.net/"},
+        ]
+        self._mirror_results = [{"name": m["name"], "prefix": m["prefix"], "latency": -1, "status": "pending"} for m in self.MIRRORS]
+
+        # 本地点赞计数: {(date_str, room_id, account_key): count}
+        self.like_counts = {}
+        self._like_counts_lock = threading.RLock()
+        self._load_like_counts()
 
         # 清理上次更新残留文件
         self._cleanup_update_leftovers()
@@ -301,6 +326,7 @@ class BiliBarrageSender:
                 config = json.load(f)
                 self.accounts = config.get("accounts", [])
                 self.tasks = config.get("tasks", [])
+                self._raw_like_counts = config.get("like_counts", {})
                 for task in self.tasks:
                     task.setdefault("job_id", None)
                     task.setdefault("current_content_index", 0)
@@ -313,10 +339,12 @@ class BiliBarrageSender:
         except FileNotFoundError:
             self.accounts = []
             self.tasks = []
+            self._raw_like_counts = {}
         except Exception as e:
             self.log(f"加载配置失败: {str(e)}")
             self.accounts = []
             self.tasks = []
+            self._raw_like_counts = {}
 
     def save_config(self):
         try:
@@ -324,7 +352,13 @@ class BiliBarrageSender:
             for task in self.tasks:
                 tc = {k: v for k, v in task.items() if k != "job_id"}
                 tasks_to_save.append(tc)
-            config = {"accounts": self.accounts, "tasks": tasks_to_save}
+            today = time.strftime("%Y-%m-%d")
+            with self._like_counts_lock:
+                lc_data = {}
+                for (d, room, key), count in self.like_counts.items():
+                    if d == today:
+                        lc_data[f"{d}|{room}|{key}"] = count
+            config = {"accounts": self.accounts, "tasks": tasks_to_save, "like_counts": lc_data}
             with open("config.json", "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -564,10 +598,79 @@ class BiliBarrageSender:
             result = response.json()
             if result.get("code") == 0:
                 self.log(f"[{nickname}] 直播间 {room_id} 点赞完成 (click_time={click_time})")
+                self._record_like_count(room_id, account["key"], click_time)
             else:
                 self.log(f"[{nickname}] 直播间 {room_id} 点赞失败: {result.get('message', '未知错误')}")
         except Exception as e:
             self.log(f"[{nickname}] 直播间 {room_id} 点赞异常: {str(e)}")
+
+    def _record_like_count(self, room_id, account_key, click_time):
+        today = time.strftime("%Y-%m-%d")
+        key = (today, str(room_id), account_key)
+        with self._like_counts_lock:
+            self.like_counts[key] = self.like_counts.get(key, 0) + int(click_time)
+            self._save_like_counts()
+
+    def _load_like_counts(self):
+        """从 config 加载点赞计数，只保留当天记录；兼容旧 like_counts.json 迁移"""
+        today = time.strftime("%Y-%m-%d")
+        data = getattr(self, '_raw_like_counts', {})
+        # 兼容旧版：若 like_counts.json 存在则迁移
+        if not data:
+            try:
+                with open("like_counts.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                # 迁移后删除旧文件
+                os.remove("like_counts.json")
+                self.log("已将 like_counts.json 迁移到 config.json")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                self.log(f"迁移点赞计数失败: {str(e)}")
+        for composite_key, count in data.items():
+            parts = composite_key.split("|", 2)
+            if len(parts) == 3 and parts[0] == today:
+                self.like_counts[(parts[0], parts[1], parts[2])] = count
+
+    def _save_like_counts(self):
+        """将当天点赞计数保存到 config.json"""
+        self.save_config()
+
+    def get_like_counts(self, room_id):
+        """返回今日各账号在指定房间的点赞次数"""
+        today = time.strftime("%Y-%m-%d")
+        room_id = str(room_id)
+        result = {}
+        with self._like_counts_lock:
+            for acc in self.accounts:
+                key = (today, room_id, acc["key"])
+                count = self.like_counts.get(key, 0)
+                result[acc["key"]] = count
+        return result
+
+    def get_like_counts_total(self):
+        """返回今日各账号在所有房间的点赞总次数，以及按房间的明细"""
+        today = time.strftime("%Y-%m-%d")
+        totals = {}   # {account_key: total}
+        details = {}  # {account_key: {room_id: count}}
+        with self._like_counts_lock:
+            for (d, room, acc_key), count in self.like_counts.items():
+                if d != today:
+                    continue
+                totals[acc_key] = totals.get(acc_key, 0) + count
+                if acc_key not in details:
+                    details[acc_key] = {}
+                details[acc_key][room] = count
+        result = []
+        for acc in self.accounts:
+            k = acc["key"]
+            result.append({
+                "nickname": acc.get("nickname", ""),
+                "key": k,
+                "total": totals.get(k, 0),
+                "rooms": details.get(k, {}),
+            })
+        return result
 
     def _send_likes_thread(self, room_id, click_time, indices):
         for i in indices:
@@ -718,17 +821,48 @@ class BiliBarrageSender:
                 tag = data.get("tag_name", "")
                 latest = re.sub(r'^v', '', tag)
                 if self._compare_versions(latest, VERSION) > 0:
+                    body = data.get("body", "")
+                    commits = []
+                    if not body.strip():
+                        commits = self._get_commits_between(VERSION, tag)
                     return json.dumps({
                         "has_update": True,
                         "latest_version": latest,
                         "current_version": VERSION,
                         "url": data.get("html_url", ""),
-                        "body": data.get("body", ""),
+                        "body": body,
+                        "commits": commits,
                     }, ensure_ascii=False)
             return json.dumps({"has_update": False, "current_version": VERSION}, ensure_ascii=False)
         except Exception as e:
             self.log(f"检查更新失败: {str(e)}")
             return json.dumps({"has_update": False, "current_version": VERSION}, ensure_ascii=False)
+
+    def _get_commits_between(self, old_version, new_tag):
+        """获取当前版本标签到最新版本之间的提交信息，返回结构化列表"""
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "bili_barrage-update-checker",
+        }
+        candidates = [old_version, f"v{old_version}"]
+        for base_tag in candidates:
+            try:
+                url = f"https://api.github.com/repos/{GITHUB_REPO}/compare/{base_tag}...{new_tag}"
+                response = requests.get(url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    commits = response.json().get("commits", [])
+                    if commits:
+                        result = []
+                        for c in commits:
+                            result.append({
+                                "sha": c.get("sha", "")[:7],
+                                "date": c.get("commit", {}).get("committer", {}).get("date", "")[:10],
+                                "message": c.get("commit", {}).get("message", "").split("\n")[0],
+                            })
+                        return result
+            except Exception:
+                continue
+        return []
 
     @staticmethod
     def _compare_versions(v1, v2):
@@ -740,7 +874,41 @@ class BiliBarrageSender:
                 return a - b
         return len(parts1) - len(parts2)
 
-    def download_and_apply_update(self):
+    def _test_mirrors(self):
+        """并发测试所有镜像站延迟"""
+        self._mirror_results = [{"name": m["name"], "prefix": m["prefix"], "latency": -1, "status": "testing"} for m in self.MIRRORS]
+
+        def test_one(index, mirror):
+            prefix = mirror["prefix"]
+            # 对镜像站测试其根域名连通性
+            if prefix:
+                # 取镜像站根 URL
+                from urllib.parse import urlparse
+                parsed = urlparse(prefix)
+                target = f"{parsed.scheme}://{parsed.netloc}/"
+            else:
+                target = f"https://github.com/{GITHUB_REPO}/releases"
+            try:
+                start = time.time()
+                resp = requests.get(target, timeout=5, allow_redirects=True, stream=True)
+                latency = int((time.time() - start) * 1000)
+                resp.close()
+                if resp.status_code < 500:
+                    self._mirror_results[index] = {"name": mirror["name"], "prefix": prefix, "latency": latency, "status": "ok"}
+                else:
+                    self._mirror_results[index] = {"name": mirror["name"], "prefix": prefix, "latency": -1, "status": "error"}
+            except Exception:
+                self._mirror_results[index] = {"name": mirror["name"], "prefix": prefix, "latency": -1, "status": "error"}
+
+        threads = []
+        for i, m in enumerate(self.MIRRORS):
+            t = threading.Thread(target=test_one, args=(i, m), daemon=True)
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join()
+
+    def download_and_apply_update(self, mirror_prefix=''):
         """下载最新版本，通过 bat 脚本安全替换当前程序"""
         import subprocess
         import tempfile
@@ -775,6 +943,8 @@ class BiliBarrageSender:
                 return
 
             download_url = exe_asset["browser_download_url"]
+            if mirror_prefix:
+                download_url = f"{mirror_prefix}{download_url}"
             file_size = exe_asset.get("size", 0)
             size_mb = file_size / 1024 / 1024 if file_size else 0
             self._update_progress = {"percent": 0, "status": "downloading", "message": f"开始下载 ({size_mb:.1f} MB)"}

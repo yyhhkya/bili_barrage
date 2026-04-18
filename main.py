@@ -254,6 +254,9 @@ class BiliBarrageSender:
         # 更新下载进度: {"percent": 0-100, "status": "idle"|"downloading"|"done"|"error", "message": ""}
         self._update_progress = {"percent": 0, "status": "idle", "message": ""}
 
+        # 清理上次更新残留文件
+        self._cleanup_update_leftovers()
+
         # 启动定时任务线程
         self.schedule_thread = threading.Thread(target=self.run_schedule, daemon=True)
         self.schedule_thread.start()
@@ -686,6 +689,22 @@ class BiliBarrageSender:
             time.sleep(1)
 
     # ---- Update Check ----
+    def _cleanup_update_leftovers(self):
+        """启动时清理上次更新残留的 .old / .backup / update.bat / update_log.txt 文件"""
+        if not getattr(sys, 'frozen', False):
+            return
+        try:
+            app_dir = os.path.dirname(sys.executable)
+            for fname in os.listdir(app_dir):
+                fpath = os.path.join(app_dir, fname)
+                if fname in ("update.bat", "update_log.txt") or fname.endswith((".old", ".backup", ".new")):
+                    try:
+                        os.remove(fpath)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     def check_update(self):
         try:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -722,7 +741,11 @@ class BiliBarrageSender:
         return len(parts1) - len(parts2)
 
     def download_and_apply_update(self):
-        """下载最新版本并替换当前程序"""
+        """下载最新版本，通过 bat 脚本安全替换当前程序"""
+        import subprocess
+        import tempfile
+
+        temp_file = None
         try:
             self._update_progress = {"percent": 0, "status": "downloading", "message": "正在获取版本信息..."}
             self.log("正在获取最新版本信息...")
@@ -740,7 +763,6 @@ class BiliBarrageSender:
             data = response.json()
             assets = data.get("assets", [])
 
-            # 查找 .exe 资源
             exe_asset = None
             for asset in assets:
                 if asset["name"].endswith(".exe"):
@@ -758,82 +780,252 @@ class BiliBarrageSender:
             self._update_progress = {"percent": 0, "status": "downloading", "message": f"开始下载 ({size_mb:.1f} MB)"}
             self.log(f"开始下载: {exe_asset['name']} ({size_mb:.1f} MB)")
 
-            # 确定下载目录
             is_frozen = getattr(sys, 'frozen', False)
             if is_frozen:
                 current_exe = sys.executable
-                download_dir = os.path.dirname(current_exe)
+                app_dir = os.path.dirname(current_exe)
             else:
-                download_dir = os.path.dirname(os.path.abspath(__file__))
+                current_exe = os.path.abspath(__file__)
+                app_dir = os.path.dirname(current_exe)
 
-            new_exe = os.path.join(download_dir, exe_asset["name"] + ".new")
+            # 下载到临时目录，避免污染程序目录
+            temp_dir = tempfile.mkdtemp(prefix="bili_update_")
+            temp_file = os.path.join(temp_dir, exe_asset["name"])
 
-            # 下载文件
-            dl_response = requests.get(download_url, stream=True, timeout=60)
+            dl_response = requests.get(download_url, stream=True, timeout=(15, 300), allow_redirects=True)
             dl_response.raise_for_status()
             downloaded = 0
             last_pct = -1
-            with open(new_exe, "wb") as f:
-                for chunk in dl_response.iter_content(chunk_size=8192):
+            sha256 = hashlib.sha256()
+            with open(temp_file, "wb") as f:
+                for chunk in dl_response.iter_content(chunk_size=65536):
                     f.write(chunk)
+                    sha256.update(chunk)
                     downloaded += len(chunk)
                     if file_size > 0:
                         pct = min(downloaded * 100 // file_size, 99)
                         if pct != last_pct:
                             last_pct = pct
-                            self._update_progress = {"percent": pct, "status": "downloading", "message": f"下载中 {pct}% ({downloaded / 1024 / 1024:.1f}/{size_mb:.1f} MB)"}
+                            self._update_progress = {
+                                "percent": pct,
+                                "status": "downloading",
+                                "message": f"下载中 {pct}% ({downloaded / 1024 / 1024:.1f}/{size_mb:.1f} MB)",
+                            }
 
+            # 校验文件大小
+            actual_size = os.path.getsize(temp_file)
+            if file_size > 0 and actual_size != file_size:
+                msg = f"文件大小不匹配: 期望 {file_size}, 实际 {actual_size}"
+                self._update_progress = {"percent": 0, "status": "error", "message": msg}
+                self.log(f"下载失败: {msg}")
+                return
+
+            # 从 release body 中尝试提取 SHA256 进行校验（格式: SHA256: <hash>）
+            release_body = data.get("body", "") or ""
+            sha256_match = re.search(r'(?i)sha256\s*[:：]\s*([0-9a-fA-F]{64})', release_body)
+            if sha256_match:
+                expected_hash = sha256_match.group(1).lower()
+                actual_hash = sha256.hexdigest()
+                if actual_hash != expected_hash:
+                    msg = f"SHA256 校验失败"
+                    self._update_progress = {"percent": 0, "status": "error", "message": msg}
+                    self.log(f"下载失败: {msg} (期望 {expected_hash[:16]}..., 实际 {actual_hash[:16]}...)")
+                    return
+                self.log(f"SHA256 校验通过: {actual_hash[:16]}...")
+
+            self.log(f"下载完成，文件大小: {actual_size} 字节")
             self._update_progress = {"percent": 100, "status": "done", "message": "下载完成，准备更新..."}
-            self.log("下载完成，准备更新...")
 
             if is_frozen:
-                # 打包模式：自动替换并重启
-                bat_path = os.path.join(download_dir, "_update.bat")
-                old_name = os.path.basename(current_exe)
-                new_name = exe_asset["name"]
-                with open(bat_path, "w", encoding="gbk") as f:
-                    f.write('@echo off\n')
-                    f.write('chcp 65001 > nul\n')
-                    f.write('echo 正在等待程序退出...\n')
-                    f.write(':wait_loop\n')
-                    f.write('timeout /t 1 /nobreak > nul\n')
-                    f.write(f'del /f "{old_name}" 2>nul\n')
-                    f.write(f'if exist "{old_name}" goto wait_loop\n')
-                    f.write('echo 正在更新...\n')
-                    f.write(f'rename "{new_name}.new" "{new_name}"\n')
-                    f.write(f'if not exist "{new_name}" (\n')
-                    f.write(f'  echo 更新失败，文件重命名出错\n')
-                    f.write('  pause\n')
-                    f.write('  exit /b 1\n')
-                    f.write(')\n')
-                    f.write(f'start "" "{os.path.join(download_dir, new_name)}"\n')
-                    f.write('del /f "%~f0" & exit\n')
+                # 打包模式：将新 exe 放到程序目录的 .new 文件，用 bat 脚本完成替换
+                current_exe_name = os.path.basename(current_exe)
+                new_exe_name = exe_asset["name"]
+                new_file_in_app_dir = os.path.join(app_dir, new_exe_name + ".new")
+                current_pid = os.getpid()
+
+                # 移动到程序目录（跨盘会自动 copy+delete）
+                import shutil
+                if os.path.exists(new_file_in_app_dir):
+                    os.remove(new_file_in_app_dir)
+                shutil.move(temp_file, new_file_in_app_dir)
+                temp_file = None  # 已移走，不再清理
+
+                # 生成 update.bat（纯 ASCII，避免中文编码问题）
+                bat_path = os.path.join(app_dir, "update.bat")
+                log_file = "update_log.txt"
+                bat_content = f'''@echo off
+
+cd /d "{app_dir}"
+set "LOG={log_file}"
+
+echo [%date% %time%] update script started >> %LOG%
+echo [%date% %time%] cwd: %cd% >> %LOG%
+echo [%date% %time%] waiting for old process PID={current_pid} >> %LOG%
+
+set /a WAIT=0
+:WAIT_LOOP
+tasklist /FI "PID eq {current_pid}" 2>nul | find /I "{current_pid}" >nul 2>&1
+if errorlevel 1 (
+    echo [%date% %time%] old process exited >> %LOG%
+    goto :WAIT_DONE
+)
+if %WAIT% GEQ 30 (
+    echo [%date% %time%] wait timeout, force continue >> %LOG%
+    goto :WAIT_DONE
+)
+timeout /t 1 /nobreak >nul 2>&1
+set /a WAIT+=1
+goto :WAIT_LOOP
+:WAIT_DONE
+
+timeout /t 1 /nobreak >nul 2>&1
+
+echo [%date% %time%] cleaning _MEI temp dirs >> %LOG%
+for /d %%D in ("%TEMP%\\_MEI*") do (
+    rmdir /s /q "%%D" >nul 2>&1
+    if not exist "%%D" (
+        echo [%date% %time%]   removed: %%D >> %LOG%
+    )
+)
+
+if not exist "{new_exe_name}.new" (
+    echo [%date% %time%] [ERROR] new file not found, abort >> %LOG%
+    exit /b 1
+)
+echo [%date% %time%] new file confirmed: {new_exe_name}.new >> %LOG%
+
+if exist "{current_exe_name}" (
+    if exist "{current_exe_name}.backup" del /f /q "{current_exe_name}.backup" >nul 2>&1
+    ren "{current_exe_name}" "{current_exe_name}.backup" >nul 2>&1
+    if exist "{current_exe_name}" (
+        echo [%date% %time%] [ERROR] cannot rename old exe, may still running >> %LOG%
+        exit /b 1
+    )
+    echo [%date% %time%] backup: {current_exe_name} -^> {current_exe_name}.backup >> %LOG%
+)
+
+ren "{new_exe_name}.new" "{new_exe_name}" >nul 2>&1
+if not exist "{new_exe_name}" (
+    echo [%date% %time%] [ERROR] rename new file failed, rollback >> %LOG%
+    if exist "{current_exe_name}.backup" ren "{current_exe_name}.backup" "{current_exe_name}" >nul 2>&1
+    exit /b 1
+)
+echo [%date% %time%] replaced: {new_exe_name}.new -^> {new_exe_name} >> %LOG%
+
+echo [%date% %time%] waiting 3s for file system sync and antivirus scan >> %LOG%
+timeout /t 3 /nobreak >nul 2>&1
+
+echo [%date% %time%] current PATH: %PATH% >> %LOG%
+
+set /a RETRY=0
+:START_LOOP
+echo [%date% %time%] starting new version (attempt %RETRY%) >> %LOG%
+
+for /d %%D in ("%TEMP%\\_MEI*") do (
+    rmdir /s /q "%%D" >nul 2>&1
+)
+
+REM reset environment to avoid PyInstaller inherited vars causing DLL issues
+setlocal
+set "PATH=%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\Wbem;%SystemRoot%\System32\WindowsPowerShell\v1.0\"
+set "_PYI_ARCHIVE_FILE="
+set "_PYI_SPLASH_IPC="
+set "TCL_LIBRARY="
+set "TK_LIBRARY="
+start "" "{new_exe_name}"
+endlocal
+
+timeout /t 8 /nobreak >nul 2>&1
+
+tasklist /FI "IMAGENAME eq {new_exe_name}" 2>nul | find /I "{new_exe_name}" >nul 2>&1
+if errorlevel 1 (
+    echo [%date% %time%] [WARN] process not found after start >> %LOG%
+    goto :START_RETRY
+)
+
+tasklist /V /FI "IMAGENAME eq {new_exe_name}" /FI "WINDOWTITLE eq Error" 2>nul | find /I "{new_exe_name}" >nul 2>&1
+if not errorlevel 1 (
+    echo [%date% %time%] [WARN] process has Error dialog, killing >> %LOG%
+    taskkill /F /FI "IMAGENAME eq {new_exe_name}" /FI "WINDOWTITLE eq Error" >nul 2>&1
+    timeout /t 2 /nobreak >nul 2>&1
+    goto :START_RETRY
+)
+
+echo [%date% %time%] new version started OK >> %LOG%
+goto :CLEANUP
+
+:START_RETRY
+set /a RETRY+=1
+if %RETRY% GEQ 3 (
+    echo [%date% %time%] [ERROR] all 3 attempts failed, rollback >> %LOG%
+    for /d %%D in ("%TEMP%\\_MEI*") do (
+        rmdir /s /q "%%D" >nul 2>&1
+    )
+    del /f /q "{new_exe_name}" >nul 2>&1
+    if exist "{current_exe_name}.backup" (
+        ren "{current_exe_name}.backup" "{current_exe_name}" >nul 2>&1
+        echo [%date% %time%] rolled back to old version >> %LOG%
+        setlocal
+        set "PATH=%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\Wbem;%SystemRoot%\System32\WindowsPowerShell\v1.0\"
+        set "_PYI_ARCHIVE_FILE="
+        start "" "{current_exe_name}"
+        endlocal
+    )
+    exit /b 1
+)
+echo [%date% %time%] retry %RETRY% of 3, waiting 3s >> %LOG%
+timeout /t 3 /nobreak >nul 2>&1
+goto :START_LOOP
+
+:CLEANUP
+if exist "{current_exe_name}.backup" del /f /q "{current_exe_name}.backup" >nul 2>&1
+if exist "{current_exe_name}.old" del /f /q "{current_exe_name}.old" >nul 2>&1
+
+echo [%date% %time%] update completed >> %LOG%
+
+timeout /t 2 /nobreak >nul 2>&1
+del /f /q "%LOG%" >nul 2>&1
+del /f /q "%~f0" >nul 2>&1
+exit /b 0
+'''
+                with open(bat_path, "w", encoding="ascii") as f:
+                    f.write(bat_content)
 
                 self._update_progress = {"percent": 100, "status": "done", "message": "正在重启应用..."}
-                self.log("正在重启应用以完成更新...")
-                import subprocess
+                self.log("正在启动更新脚本...")
+
+                # 启动 bat 脚本（隐藏窗口）
                 subprocess.Popen(
-                    f'cmd.exe /c "{bat_path}"',
-                    cwd=download_dir,
-                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                    [bat_path],
+                    cwd=app_dir,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
                 )
+                time.sleep(0.5)
                 os._exit(0)
             else:
-                # 开发模式：重命名为正式文件名，提示用户
-                final_path = os.path.join(download_dir, exe_asset["name"])
+                # 开发模式：直接放到程序目录
+                final_path = os.path.join(app_dir, exe_asset["name"])
+                import shutil
                 if os.path.exists(final_path):
                     os.remove(final_path)
-                os.rename(new_exe, final_path)
+                shutil.move(temp_file, final_path)
+                temp_file = None
                 self._update_progress = {"percent": 100, "status": "done", "message": f"已下载到: {final_path}"}
                 self.log(f"更新已下载到: {final_path}")
 
         except Exception as e:
             self._update_progress = {"percent": 0, "status": "error", "message": f"下载失败: {str(e)}"}
             self.log(f"下载更新失败: {str(e)}")
-            # 清理失败的下载
+        finally:
+            # 清理临时文件
             try:
-                if 'new_exe' in locals() and os.path.exists(new_exe):
-                    os.remove(new_exe)
+                if temp_file and os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    temp_dir = os.path.dirname(temp_file)
+                    if os.path.isdir(temp_dir) and temp_dir.startswith(tempfile.gettempdir()):
+                        import shutil
+                        shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
 
@@ -1240,5 +1432,14 @@ class WatchManager:
         return sign
 
 if __name__ == "__main__":
+    # 启动时清理上次更新残留的 .old 文件
+    if getattr(sys, 'frozen', False):
+        old_backup = sys.executable + ".old"
+        if os.path.exists(old_backup):
+            try:
+                os.remove(old_backup)
+            except Exception:
+                pass
+
     app = BiliBarrageSender()
     app.run()

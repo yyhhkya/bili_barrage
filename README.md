@@ -24,8 +24,7 @@ uv run python main.py
 ## 打包
 
 ```bash
-uv pip install pyinstaller
-uv run pyinstaller --onefile --windowed --name "bili_barrage" --add-data "web;web" --add-data "pyproject.toml;." main.py
+uv run pyinstaller bili_barrage.spec --noconfirm
 ```
 
 打包后的 exe 文件在 `dist/` 目录下。

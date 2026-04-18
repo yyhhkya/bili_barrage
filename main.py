@@ -12,6 +12,30 @@ import os
 import sys
 import io
 import base64
+import re
+
+
+def _read_version():
+    """从 pyproject.toml 或 importlib.metadata 读取版本号"""
+    try:
+        from importlib.metadata import version as _get_version
+        return _get_version("bili-barrage")
+    except Exception:
+        pass
+    try:
+        toml_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyproject.toml")
+        with open(toml_path, "r", encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'^version\s*=\s*"([^"]+)"', line.strip())
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return "0.0.0"
+
+
+VERSION = _read_version()
+GITHUB_REPO = "yyhhkya/bili_barrage"
 
 
 class Api:
@@ -29,6 +53,7 @@ class Api:
         return json.dumps({
             "accounts": self.app.accounts,
             "tasks": tasks_safe,
+            "version": VERSION,
         }, ensure_ascii=False)
 
     # ---- Accounts ----
@@ -184,6 +209,16 @@ class Api:
             daemon=True,
         ).start()
 
+    # ---- Update ----
+    def check_update(self):
+        return self.app.check_update()
+
+    def download_update(self):
+        threading.Thread(target=self.app.download_and_apply_update, daemon=True).start()
+
+    def get_update_progress(self):
+        return json.dumps(self.app._update_progress, ensure_ascii=False)
+
     # ---- Logs ----
     def get_new_logs(self):
         logs = []
@@ -215,6 +250,9 @@ class BiliBarrageSender:
         # 扫码登录状态
         self.login_cancelled = False
         self._auth_code = None
+
+        # 更新下载进度: {"percent": 0-100, "status": "idle"|"downloading"|"done"|"error", "message": ""}
+        self._update_progress = {"percent": 0, "status": "idle", "message": ""}
 
         # 启动定时任务线程
         self.schedule_thread = threading.Thread(target=self.run_schedule, daemon=True)
@@ -647,13 +685,165 @@ class BiliBarrageSender:
             schedule.run_pending()
             time.sleep(1)
 
+    # ---- Update Check ----
+    def check_update(self):
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "bili_barrage-update-checker",
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                tag = data.get("tag_name", "")
+                latest = re.sub(r'^v', '', tag)
+                if self._compare_versions(latest, VERSION) > 0:
+                    return json.dumps({
+                        "has_update": True,
+                        "latest_version": latest,
+                        "current_version": VERSION,
+                        "url": data.get("html_url", ""),
+                        "body": data.get("body", ""),
+                    }, ensure_ascii=False)
+            return json.dumps({"has_update": False, "current_version": VERSION}, ensure_ascii=False)
+        except Exception as e:
+            self.log(f"检查更新失败: {str(e)}")
+            return json.dumps({"has_update": False, "current_version": VERSION}, ensure_ascii=False)
+
+    @staticmethod
+    def _compare_versions(v1, v2):
+        """比较两个版本号，v1 > v2 返回正数，v1 < v2 返回负数，相等返回 0"""
+        parts1 = [int(x) for x in v1.split(".")]
+        parts2 = [int(x) for x in v2.split(".")]
+        for a, b in zip(parts1, parts2):
+            if a != b:
+                return a - b
+        return len(parts1) - len(parts2)
+
+    def download_and_apply_update(self):
+        """下载最新版本并替换当前程序"""
+        try:
+            self._update_progress = {"percent": 0, "status": "downloading", "message": "正在获取版本信息..."}
+            self.log("正在获取最新版本信息...")
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "bili_barrage-update-checker",
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code != 200:
+                self._update_progress = {"percent": 0, "status": "error", "message": "获取更新信息失败"}
+                self.log("获取更新信息失败")
+                return
+
+            data = response.json()
+            assets = data.get("assets", [])
+
+            # 查找 .exe 资源
+            exe_asset = None
+            for asset in assets:
+                if asset["name"].endswith(".exe"):
+                    exe_asset = asset
+                    break
+
+            if not exe_asset:
+                self._update_progress = {"percent": 0, "status": "error", "message": "未找到可下载的 exe 文件"}
+                self.log("未找到可下载的 exe 文件，请手动前往 GitHub 下载")
+                return
+
+            download_url = exe_asset["browser_download_url"]
+            file_size = exe_asset.get("size", 0)
+            size_mb = file_size / 1024 / 1024 if file_size else 0
+            self._update_progress = {"percent": 0, "status": "downloading", "message": f"开始下载 ({size_mb:.1f} MB)"}
+            self.log(f"开始下载: {exe_asset['name']} ({size_mb:.1f} MB)")
+
+            # 确定下载目录
+            is_frozen = getattr(sys, 'frozen', False)
+            if is_frozen:
+                current_exe = sys.executable
+                download_dir = os.path.dirname(current_exe)
+            else:
+                download_dir = os.path.dirname(os.path.abspath(__file__))
+
+            new_exe = os.path.join(download_dir, exe_asset["name"] + ".new")
+
+            # 下载文件
+            dl_response = requests.get(download_url, stream=True, timeout=60)
+            dl_response.raise_for_status()
+            downloaded = 0
+            last_pct = -1
+            with open(new_exe, "wb") as f:
+                for chunk in dl_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if file_size > 0:
+                        pct = min(downloaded * 100 // file_size, 99)
+                        if pct != last_pct:
+                            last_pct = pct
+                            self._update_progress = {"percent": pct, "status": "downloading", "message": f"下载中 {pct}% ({downloaded / 1024 / 1024:.1f}/{size_mb:.1f} MB)"}
+
+            self._update_progress = {"percent": 100, "status": "done", "message": "下载完成，准备更新..."}
+            self.log("下载完成，准备更新...")
+
+            if is_frozen:
+                # 打包模式：自动替换并重启
+                bat_path = os.path.join(download_dir, "_update.bat")
+                old_name = os.path.basename(current_exe)
+                new_name = exe_asset["name"]
+                with open(bat_path, "w", encoding="gbk") as f:
+                    f.write('@echo off\n')
+                    f.write('chcp 65001 > nul\n')
+                    f.write('echo 正在等待程序退出...\n')
+                    f.write(':wait_loop\n')
+                    f.write('timeout /t 1 /nobreak > nul\n')
+                    f.write(f'del /f "{old_name}" 2>nul\n')
+                    f.write(f'if exist "{old_name}" goto wait_loop\n')
+                    f.write('echo 正在更新...\n')
+                    f.write(f'rename "{new_name}.new" "{new_name}"\n')
+                    f.write(f'if not exist "{new_name}" (\n')
+                    f.write(f'  echo 更新失败，文件重命名出错\n')
+                    f.write('  pause\n')
+                    f.write('  exit /b 1\n')
+                    f.write(')\n')
+                    f.write(f'start "" "{os.path.join(download_dir, new_name)}"\n')
+                    f.write('del /f "%~f0" & exit\n')
+
+                self._update_progress = {"percent": 100, "status": "done", "message": "正在重启应用..."}
+                self.log("正在重启应用以完成更新...")
+                import subprocess
+                subprocess.Popen(
+                    f'cmd.exe /c "{bat_path}"',
+                    cwd=download_dir,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                )
+                os._exit(0)
+            else:
+                # 开发模式：重命名为正式文件名，提示用户
+                final_path = os.path.join(download_dir, exe_asset["name"])
+                if os.path.exists(final_path):
+                    os.remove(final_path)
+                os.rename(new_exe, final_path)
+                self._update_progress = {"percent": 100, "status": "done", "message": f"已下载到: {final_path}"}
+                self.log(f"更新已下载到: {final_path}")
+
+        except Exception as e:
+            self._update_progress = {"percent": 0, "status": "error", "message": f"下载失败: {str(e)}"}
+            self.log(f"下载更新失败: {str(e)}")
+            # 清理失败的下载
+            try:
+                if 'new_exe' in locals() and os.path.exists(new_exe):
+                    os.remove(new_exe)
+            except Exception:
+                pass
+
     # ---- Run ----
     def run(self):
         api = Api(self)
         base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         html_path = os.path.join(base_dir, "web", "index.html")
         window = webview.create_window(
-            "B站弹幕助手 v2.0.0",
+            f"B站弹幕助手 v{VERSION}",
             html_path,
             js_api=api,
             width=1200,

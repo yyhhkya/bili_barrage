@@ -1,7 +1,7 @@
 [project]
 name = "bili-barrage"
-version = "2.0.0"
-description = "B站弹幕助手 - WebView 版"
+version = "2.1.0"
+description = "B站弹幕助手"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

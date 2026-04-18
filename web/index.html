@@ -71,6 +71,12 @@
         <el-menu-item index="tasks">⏰ 定时任务</el-menu-item>
         <el-menu-item index="logs">📋 日志</el-menu-item>
       </el-menu>
+      <div style="margin-top:auto;padding:10px 14px;border-top:1px solid var(--el-border-color-lighter);font-size:12px;color:var(--el-text-color-secondary);text-align:center">
+        <span>v{{ currentVersion }}</span>
+        <div v-if="updateInfo.has_update" style="margin-top:6px">
+          <el-link type="warning" :underline="false" @click="showUpdateDialog" style="font-size:12px">🔔 有新版本 v{{ updateInfo.latest_version }}</el-link>
+        </div>
+      </div>
     </div>
 
     <!-- Main -->
@@ -319,6 +325,27 @@
       <el-button type="primary" @click="saveTask">确定</el-button>
     </template>
   </el-dialog>
+
+  <!-- 更新提示对话框 -->
+  <el-dialog v-model="updateDlg.visible" title="发现新版本" width="460px" :close-on-click-modal="!updateDlg.downloading" :close-on-press-escape="!updateDlg.downloading" :show-close="!updateDlg.downloading">
+    <div style="line-height:1.8">
+      <p>当前版本：<strong>v{{ updateInfo.current_version }}</strong></p>
+      <p>最新版本：<strong style="color:var(--el-color-warning)">v{{ updateInfo.latest_version }}</strong></p>
+      <div v-if="updateInfo.body" style="margin-top:12px">
+        <p style="font-weight:600;margin-bottom:6px">更新说明：</p>
+        <div style="background:var(--el-fill-color);border-radius:6px;padding:12px;font-size:13px;white-space:pre-wrap;max-height:200px;overflow-y:auto">{{ updateInfo.body }}</div>
+      </div>
+      <div v-if="updateDlg.downloading" style="margin-top:16px">
+        <el-progress :percentage="updateDlg.percent" :status="updateDlg.progressStatus" :stroke-width="20" :text-inside="true" style="margin-bottom:8px"></el-progress>
+        <p style="font-size:13px;color:var(--el-text-color-secondary);margin:4px 0 0">{{ updateDlg.message }}</p>
+      </div>
+    </div>
+    <template #footer>
+      <el-button @click="updateDlg.visible=false" :disabled="updateDlg.downloading">稍后再说</el-button>
+      <el-button type="warning" @click="openUpdateUrl" :disabled="updateDlg.downloading">前往 GitHub</el-button>
+      <el-button type="primary" @click="downloadUpdate" :loading="updateDlg.downloading">立即更新</el-button>
+    </template>
+  </el-dialog>
 </div>
 
 <script>
@@ -341,6 +368,9 @@ const app = createApp({
     const accountDlg = reactive({ visible: false, index: -1, nickname: '', key: '' });
     const qrDlg = reactive({ visible: false, image: '', status: '正在获取二维码…' });
     const taskDlg = reactive({ visible: false, index: -1, remark: '', roomId: '', content: '', interval: 5, selected: [] });
+    const updateInfo = reactive({ has_update: false, latest_version: '', current_version: '', url: '', body: '' });
+    const updateDlg = reactive({ visible: false, downloading: false, percent: 0, message: '', progressStatus: '' });
+    const currentVersion = ref('');
 
     async function api(method, ...args) {
       while (!window.pywebview || !window.pywebview.api) await new Promise(r => setTimeout(r, 100));
@@ -372,6 +402,7 @@ const app = createApp({
         const s = JSON.parse(raw);
         accounts.value = s.accounts;
         tasks.value = s.tasks;
+        if (s.version) currentVersion.value = s.version;
         const ws = await api('get_watch_status');
         watchStatus.value = JSON.parse(ws);
       } catch {}
@@ -506,8 +537,57 @@ const app = createApp({
       toast('挂榜已停止');
     }
 
+    /* Update Check */
+    async function checkUpdate() {
+      try {
+        const raw = await api('check_update');
+        const info = JSON.parse(raw);
+        Object.assign(updateInfo, info);
+        if (info.current_version) currentVersion.value = info.current_version;
+        if (info.has_update) {
+          toast('发现新版本 v' + info.latest_version, 'warning');
+        }
+      } catch {}
+    }
+    function showUpdateDialog() { updateDlg.visible = true; }
+    function openUpdateUrl() {
+      if (updateInfo.url) window.open(updateInfo.url, '_blank');
+    }
+    async function downloadUpdate() {
+      try {
+        await ElMessageBox.confirm('将下载最新版本并自动重启应用，确定继续吗？', '确认更新', { type: 'warning' });
+        updateDlg.downloading = true;
+        updateDlg.percent = 0;
+        updateDlg.message = '准备下载...';
+        updateDlg.progressStatus = '';
+        await api('download_update');
+
+        // 轮询下载进度
+        const progressTimer = setInterval(async () => {
+          try {
+            const raw = await api('get_update_progress');
+            const p = JSON.parse(raw);
+            updateDlg.percent = p.percent;
+            updateDlg.message = p.message;
+            if (p.status === 'done') {
+              updateDlg.progressStatus = 'success';
+              clearInterval(progressTimer);
+            } else if (p.status === 'error') {
+              updateDlg.progressStatus = 'exception';
+              updateDlg.downloading = false;
+              clearInterval(progressTimer);
+              toast(p.message || '更新失败', 'error');
+            }
+          } catch {}
+        }, 500);
+      } catch {
+        updateDlg.downloading = false;
+      }
+    }
+
     onMounted(async () => {
       await refreshState();
+      checkUpdate();
       stateTimer = setInterval(refreshState, 5000);
       logTimer = setInterval(pollLogs, 500);
     });
@@ -516,12 +596,13 @@ const app = createApp({
     return {
       activePage, accounts, tasks, logs, logViewerRef,
       sendForm, likeForm, watchForm, watchStatus, watchGroupBy, watchByAccount, watchByRoom,
-      accountDlg, qrDlg, taskDlg,
+      accountDlg, qrDlg, taskDlg, updateInfo, updateDlg, currentVersion,
       showAddAccount, showEditAccount, saveAccount, deleteAccount, autoGetNickname,
       startScanLogin, onQrClose,
       sendDanmaku, sendLikes,
       showAddTask, showEditTask, saveTask, deleteTask, startTask, stopTask,
       startWatch, stopWatch,
+      checkUpdate, showUpdateDialog, openUpdateUrl, downloadUpdate,
     };
   }
 });

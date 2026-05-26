@@ -13,6 +13,7 @@ import sys
 import io
 import base64
 import re
+import concurrent.futures
 
 
 def _read_version():
@@ -491,10 +492,10 @@ class BiliBarrageSender:
 
     # ---- Send Danmaku ----
     def _send_danmaku_thread(self, room_id, content, indices):
-        for i in indices:
-            if i < len(self.accounts):
-                self.send_danmaku_to_room(self.accounts[i], room_id, content)
-                time.sleep(2)
+        targets = [self.accounts[i] for i in indices if i < len(self.accounts)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+            futures = [executor.submit(self.send_danmaku_to_room, account, room_id, content) for account in targets]
+            concurrent.futures.wait(futures)
 
     def send_danmaku_to_room(self, account, room_id, content):
         try:
@@ -673,10 +674,10 @@ class BiliBarrageSender:
         return result
 
     def _send_likes_thread(self, room_id, click_time, indices):
-        for i in indices:
-            if i < len(self.accounts):
-                self.like_room(self.accounts[i], room_id, click_time)
-                time.sleep(1)
+        targets = [self.accounts[i] for i in indices if i < len(self.accounts)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+            futures = [executor.submit(self.like_room, account, room_id, click_time) for account in targets]
+            concurrent.futures.wait(futures)
     def _start_task_thread(self, task):
         try:
             up_id = self.get_room_up_id(task["room_id"])
@@ -684,13 +685,14 @@ class BiliBarrageSender:
                 self.log(f"无法获取直播间 {task['room_id']} 的主播信息，任务启动失败")
                 task["status"] = "停止"
                 return
+            targets = []
             for key in task["account_keys"]:
                 account = next((a for a in self.accounts if a["key"] == key), None)
                 if account:
-                    self.watch_manager.start_watch(
-                        key, task["room_id"], up_id, account.get("nickname", "")
-                    )
-                    time.sleep(1)
+                    targets.append((key, account.get("nickname", "")))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+                futures = [executor.submit(self.watch_manager.start_watch, key, task["room_id"], up_id, nickname) for key, nickname in targets]
+                concurrent.futures.wait(futures)
 
             def job():
                 contents = [c.strip() for c in task["content"].split(",") if c.strip()]
@@ -698,11 +700,14 @@ class BiliBarrageSender:
                     return
                 idx = task.get("current_content_index", 0)
                 current = contents[idx]
+                targets = []
                 for key in task["account_keys"]:
                     account = next((a for a in self.accounts if a["key"] == key), None)
                     if account:
-                        self.send_danmaku_to_room(account, task["room_id"], current)
-                        time.sleep(2)
+                        targets.append(account)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+                    futures = [executor.submit(self.send_danmaku_to_room, account, task["room_id"], current) for account in targets]
+                    concurrent.futures.wait(futures)
                 task["current_content_index"] = (idx + 1) % len(contents)
 
             job()
@@ -737,13 +742,14 @@ class BiliBarrageSender:
             if not up_id:
                 self.log(f"无法获取直播间 {task['room_id']} 的主播信息，任务启动失败")
                 return
+            targets = []
             for key in task["account_keys"]:
                 account = next((a for a in self.accounts if a["key"] == key), None)
                 if account:
-                    self.watch_manager.start_watch(
-                        key, task["room_id"], up_id, account.get("nickname", "")
-                    )
-                    time.sleep(1)
+                    targets.append((key, account.get("nickname", "")))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+                futures = [executor.submit(self.watch_manager.start_watch, key, task["room_id"], up_id, nickname) for key, nickname in targets]
+                concurrent.futures.wait(futures)
 
             def job():
                 contents = [c.strip() for c in task["content"].split(",") if c.strip()]
@@ -751,11 +757,14 @@ class BiliBarrageSender:
                     return
                 idx = task.get("current_content_index", 0)
                 current = contents[idx]
+                targets = []
                 for key in task["account_keys"]:
                     account = next((a for a in self.accounts if a["key"] == key), None)
                     if account:
-                        self.send_danmaku_to_room(account, task["room_id"], current)
-                        time.sleep(2)
+                        targets.append(account)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+                    futures = [executor.submit(self.send_danmaku_to_room, account, task["room_id"], current) for account in targets]
+                    concurrent.futures.wait(futures)
                 task["current_content_index"] = (idx + 1) % len(contents)
 
             job()
@@ -772,11 +781,9 @@ class BiliBarrageSender:
         if not up_id:
             self.log(f"无法获取直播间 {room_id} 的主播信息")
             return
-        for account in selected_accounts:
-            self.watch_manager.start_watch(
-                account["key"], room_id, up_id, account.get("nickname", "")
-            )
-            time.sleep(1)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(selected_accounts)) as executor:
+            futures = [executor.submit(self.watch_manager.start_watch, account["key"], room_id, up_id, account.get("nickname", "")) for account in selected_accounts]
+            concurrent.futures.wait(futures)
         self.log("挂榜任务已启动")
 
     def _stop_watch_thread(self, room_id, selected_accounts):

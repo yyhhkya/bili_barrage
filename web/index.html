@@ -55,6 +55,25 @@
     .mb-8 { margin-bottom: 8px; }
     .el-table { width: 100% !important; }
     .el-table th .cell { white-space: nowrap; }
+
+    .emoji-trigger { cursor: pointer; font-size: 20px; padding: 4px; border-radius: 4px; transition: background .2s; }
+    .emoji-trigger:hover { background: var(--el-fill-color-light); }
+    .emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; max-height: 380px; overflow-y: auto; padding: 4px; }
+    .emoji-item {
+      display: flex; align-items: center; justify-content: center;
+      padding: 6px; border-radius: 6px; cursor: pointer;
+      transition: background .15s; user-select: none;
+    }
+    .emoji-item:hover { background: var(--el-fill-color); }
+    .emoji-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+    .emoji-tab {
+      flex-shrink: 0; padding: 3px 4px; font-size: 12px; border-radius: 4px;
+      cursor: pointer; color: var(--el-text-color-regular);
+      transition: background .15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .emoji-tab:hover { background: var(--el-fill-color); }
+    .emoji-tab.active { background: var(--el-color-primary-light-9); border: 1px solid var(--el-color-primary); }
   </style>
 </head>
 <body>
@@ -119,7 +138,39 @@
               <el-input v-model="sendForm.roomId" placeholder="输入直播间房间号" style="max-width:300px"></el-input>
             </el-form-item>
             <el-form-item label="弹幕内容">
-              <el-input v-model="sendForm.content" placeholder="输入要发送的弹幕"></el-input>
+              <div style="display:flex;align-items:center;gap:8px;width:100%">
+                <el-input v-model="sendForm.content" placeholder="输入要发送的弹幕" style="flex:1"></el-input>
+                <el-popover placement="bottom" :width="420" trigger="click" @show="onEmojiPanelOpen">
+                  <template #reference>
+                    <span class="emoji-trigger">😊</span>
+                  </template>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <span style="font-size:13px;font-weight:600;color:var(--el-text-color-regular)">选择表情</span>
+                    <select :value="emojiAccountIdx" @change="emojiAccountIdx=Number($event.target.value);fetchEmoticons()" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--el-border-color);background:var(--el-bg-color);color:var(--el-text-color-regular);outline:none">
+                      <option v-for="(acc,i) in accounts" :key="i" :value="i">{{ acc.nickname }}</option>
+                    </select>
+                  </div>
+                  <div v-if="emojiGroups.length">
+                    <div class="emoji-tabs">
+                      <div v-for="(g,i) in emojiGroups" :key="i" class="emoji-tab" :class="{active: emojiTab===i}" @click="switchEmojiTab(i)">
+                        <img v-if="g.cover" :src="g.cover" style="width:22px;height:22px;object-fit:contain;border-radius:3px" />
+                        <span v-else>{{ g.name }}</span>
+                      </div>
+                    </div>
+                    <div class="emoji-grid">
+                      <div v-for="e in currentEmojiGroup" :key="e.emoji" class="emoji-item" @click="insertEmoji(e)">
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+                          <img :src="e.url" style="width:44px;height:44px;object-fit:contain" onerror="this.style.display='none'" />
+                          <span style="font-size:10px;color:var(--el-text-color-placeholder);max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center">{{ e.descript || e.emoji }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else style="text-align:center;padding:20px;color:var(--el-text-color-placeholder);font-size:13px">
+                    {{ !accounts.length ? '请先添加账号' : !sendForm.roomId ? '请先填写房间号' : '请先选择账号加载表情' }}
+                  </div>
+                </el-popover>
+              </div>
             </el-form-item>
             <el-form-item label="选择账号">
               <div class="mb-8">
@@ -384,7 +435,7 @@ const app = createApp({
     const logs = ref([]);
     const logViewerRef = ref(null);
 
-    const sendForm = reactive({ roomId: '', content: '', selected: [] });
+    const sendForm = reactive({ roomId: '', content: '', selected: [], dm_type: 0 });
     const likeForm = reactive({ roomId: '', clickTime: 30, selected: [] });
     const watchForm = reactive({ roomId: '', selected: [] });
     const watchStatus = ref([]);
@@ -511,7 +562,15 @@ const app = createApp({
     async function sendDanmaku() {
       if (!sendForm.roomId || !sendForm.content) return toast('请填写房间号和弹幕内容', 'error');
       if (!sendForm.selected.length) return toast('请至少选择一个账号', 'error');
-      await api('send_danmaku', sendForm.roomId, sendForm.content, JSON.stringify(sendForm.selected));
+      let content = sendForm.content;
+      let dm_type = sendForm.dm_type;
+      // 如果内容被<>包裹，去掉括号并标记为表情
+      if (content.startsWith('<') && content.endsWith('>')) {
+        content = content.slice(1, -1);
+        dm_type = 1;
+      }
+      await api('send_danmaku', sendForm.roomId, content, JSON.stringify(sendForm.selected), dm_type);
+      sendForm.dm_type = 0;
       toast('弹幕发送指令已提交');
     }
 
@@ -539,6 +598,18 @@ const app = createApp({
     watch(() => likeForm.roomId, () => {
       clearTimeout(likeCountsDebounce);
       likeCountsDebounce = setTimeout(fetchLikeCounts, 500);
+    });
+    let emojiRoomDebounce = null;
+    watch(() => sendForm.roomId, () => {
+      clearTimeout(emojiRoomDebounce);
+      emojiRoomDebounce = setTimeout(() => {
+        emojiGroups.value = [];
+        emojiTab.value = 0;
+        emojiLoadedTabs.value = new Set();
+        if (accounts.value.length && sendForm.roomId) {
+          fetchEmoticons();
+        }
+      }, 500);
     });
     async function sendLikes() {
       if (!likeForm.roomId) return toast('请填写房间号', 'error');
@@ -666,13 +737,78 @@ const app = createApp({
     });
     onUnmounted(() => { clearInterval(stateTimer); clearInterval(logTimer); });
 
+    /* Emoji */
+    const emojiGroups = ref([]);
+    const emojiTab = ref(0);
+    const emojiAccountIdx = ref(0);
+    const emojiLoadedTabs = ref(new Set());
+    const currentEmojiGroup = computed(() => {
+      const g = emojiGroups.value[emojiTab.value];
+      return g ? g.emoticons : [];
+    });
+    async function fetchEmoticons() {
+      if (!accounts.value.length) return;
+      if (!sendForm.roomId) return toast('请先填写房间号', 'error');
+      const idx = emojiAccountIdx.value;
+      try {
+        const raw = await api('get_emoticons', idx, sendForm.roomId);
+        emojiGroups.value = JSON.parse(raw);
+        emojiTab.value = 0;
+        emojiLoadedTabs.value = new Set();
+        // 立即加载第一个分组
+        if (emojiGroups.value.length) {
+          await loadEmojiGroup(0);
+        }
+      } catch (e) {
+        emojiGroups.value = [];
+        toast('获取表情包失败', 'error');
+      }
+    }
+    async function loadEmojiGroup(idx) {
+      if (emojiLoadedTabs.value.has(idx)) return;
+      emojiLoadedTabs.value.add(idx);
+      try {
+        const raw = await api('load_emoji_group', idx);
+        const items = JSON.parse(raw);
+        // 强制触发响应式：先清空再设新值
+        const snapshot = JSON.parse(JSON.stringify(emojiGroups.value));
+        snapshot[idx].emoticons = items;
+        emojiGroups.value = [];
+        await nextTick();
+        emojiGroups.value = snapshot;
+      } catch (e) {
+        toast('加载表情图片失败', 'error');
+      }
+    }
+    async function switchEmojiTab(idx) {
+      emojiTab.value = idx;
+      await loadEmojiGroup(idx);
+    }
+    function onEmojiPanelOpen() {
+      if (!emojiGroups.value.length && accounts.value.length && sendForm.roomId) {
+        emojiAccountIdx.value = 0;
+        fetchEmoticons();
+      }
+    }
+    function insertEmoji(emoticon) {
+      if (emojiTab.value === 0) {
+        // 第一个分组(系统emoji)以普通弹幕发送
+        sendForm.content = emoticon.descript || emoticon.emoji;
+        sendForm.dm_type = 0;
+      } else {
+        // 其他分组(付费表情包)以表情形式发送
+        sendForm.content = `<${emoticon.emoji}>`;
+        sendForm.dm_type = 1;
+      }
+    }
+
     return {
       activePage, accounts, tasks, logs, logViewerRef,
       sendForm, likeForm, likeCounts, likeTotals, likeTotalMap, watchForm, watchStatus, watchGroupBy, watchByAccount, watchByRoom,
       accountDlg, qrDlg, taskDlg, updateInfo, updateDlg, mirrorDlg, currentVersion,
       showAddAccount, showEditAccount, saveAccount, deleteAccount, autoGetNickname,
       startScanLogin, onQrClose,
-      sendDanmaku, sendLikes, fetchLikeCounts, fetchLikeTotals,
+      sendDanmaku, sendLikes, fetchLikeCounts, fetchLikeTotals, emojiGroups, emojiTab, currentEmojiGroup, emojiAccountIdx, fetchEmoticons, loadEmojiGroup, switchEmojiTab, onEmojiPanelOpen, insertEmoji,
       showAddTask, showEditTask, saveTask, deleteTask, startTask, stopTask,
       startWatch, stopWatch,
       checkUpdate, showUpdateDialog, showMirrorDlg, openUpdateUrl, downloadUpdate,

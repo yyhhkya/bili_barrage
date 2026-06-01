@@ -92,11 +92,12 @@ class Api:
         self.app.login_cancelled = True
 
     # ---- Send Danmaku ----
-    def send_danmaku(self, room_id, content, account_indices_json):
+    def send_danmaku(self, room_id, content, account_indices_json, dm_type=0):
         indices = json.loads(account_indices_json)
+        dm_type = int(dm_type)
         threading.Thread(
             target=self.app._send_danmaku_thread,
-            args=(room_id, content, indices),
+            args=(room_id, content, indices, dm_type),
             daemon=True,
         ).start()
 
@@ -114,6 +115,36 @@ class Api:
 
     def get_like_counts_total(self):
         return json.dumps(self.app.get_like_counts_total(), ensure_ascii=False)
+
+    # ---- Emoticons ----
+    def get_emoticons(self, account_index, room_id=""):
+        idx = int(account_index)
+        if idx < 0 or idx >= len(self.app.accounts):
+            return json.dumps([], ensure_ascii=False)
+        if not room_id:
+            return json.dumps([], ensure_ascii=False)
+        account = self.app.accounts[idx]
+        groups = self.app._fetch_emoticons(account["key"], room_id)
+        self.app._emoji_cache = groups
+        self.app.log(f"get_emoticons: 缓存了 {len(groups)} 个分组")
+        return json.dumps(groups, ensure_ascii=False)
+
+    def load_emoji_group(self, group_index):
+        """加载指定分组的表情图片（转base64）"""
+        idx = int(group_index)
+        groups = getattr(self.app, '_emoji_cache', [])
+        self.app.log(f"load_emoji_group: idx={idx}, cache_size={len(groups)}")
+        if idx < 0 or idx >= len(groups):
+            return json.dumps([], ensure_ascii=False)
+        group = groups[idx]
+        emotes = group["emoticons"]
+        self.app.log(f"load_emoji_group: 加载 '{group['name']}', {len(emotes)} 个")
+        urls = self.app._emoticons_to_base64(emotes)
+        result = []
+        for em, data_url in zip(emotes, urls):
+            result.append({"emoji": em["emoji"], "url": data_url, "descript": em["descript"]})
+        self.app.log(f"load_emoji_group: 完成, {len(result)} 个")
+        return json.dumps(result, ensure_ascii=False)
 
     # ---- Tasks ----
     def add_task(self, remark, room_id, content, interval, account_indices_json):
@@ -292,20 +323,33 @@ class BiliBarrageSender:
             os.makedirs(self.logs_dir)
 
     def _update_log_file(self):
-        today = time.strftime("%Y-%m-%d")
-        max_seq = 0
-        if os.path.exists(self.logs_dir):
-            for file in os.listdir(self.logs_dir):
-                if file.startswith(f"{today}-") and file.endswith(".log"):
-                    try:
-                        seq = int(file.split("-")[-1].split(".")[0])
-                        if seq > max_seq:
-                            max_seq = seq
-                    except ValueError:
-                        pass
-        new_seq = max_seq + 1
-        self.current_log_file = os.path.join(self.logs_dir, f"{today}-{new_seq}.log")
-        self.log(f"开始使用新的日志文件: {self.current_log_file}")
+        latest = os.path.join(self.logs_dir, "latest.log")
+        # 启动时将上次的 latest.log 另存为日期文件，然后清空
+        if os.path.exists(latest):
+            try:
+                with open(latest, "r", encoding="utf-8") as f:
+                    content = f.read()
+                first_line = content.split("\n", 1)[0].strip() if content else ""
+                # 从第一行提取日期，格式: [2026-06-01 10:30:33]
+                date_str = ""
+                if first_line.startswith("[") and "]" in first_line:
+                    date_str = first_line[1:first_line.index("]")]
+                if not date_str:
+                    date_str = time.strftime("%Y-%m-%d")
+                date_str = date_str[:10]
+                # 避免同名覆盖，加序号
+                seq = 1
+                while os.path.exists(os.path.join(self.logs_dir, f"{date_str}-{seq}.log")):
+                    seq += 1
+                archive = os.path.join(self.logs_dir, f"{date_str}-{seq}.log")
+                with open(archive, "w", encoding="utf-8") as f:
+                    f.write(content)
+                # 清空 latest.log
+                with open(latest, "w", encoding="utf-8") as f:
+                    pass
+            except Exception:
+                pass
+        self.current_log_file = latest
 
     # ---- Logging ----
     def log(self, message):
@@ -405,6 +449,98 @@ class BiliBarrageSender:
             self.log(f"获取用户昵称失败: {str(e)}")
         return None
 
+    def _fetch_emoticons(self, access_key, room_id=""):
+        """获取用户可用的B站直播表情包，按包分组，图片按需加载"""
+        try:
+            appkey = "4409e2ce8ffd12b8"
+            appsecret = "59b43e04ad6965f34319062b478f83dd"
+            ts = int(time.time())
+            params = {
+                "access_key": access_key,
+                "actionKey": "appkey",
+                "appkey": appkey,
+                "build": "8950600",
+                "channel": "bili",
+                "device": "android",
+                "disable_rcmd": "0",
+                "mobi_app": "android",
+                "platform": "android",
+                "ts": ts,
+                "version": "8.95.0",
+            }
+            if room_id:
+                params["room_id"] = room_id
+            params["sign"] = self.sign_bilibili_params(params, appsecret)
+            headers = {
+                "User-Agent": "Mozilla/5.0 BiliDroid/6.73.1 (bbcallen@gmail.com) os/android model/Mi 10 Pro mobi_app/android build/6731100 channel/xiaomi innerVer/6731110 osVer/12 network/2"
+            }
+            url = "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons"
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            result = resp.json()
+            if result.get("code") == 0:
+                data = result.get("data", {})
+                packages_raw = data.get("data", []) if isinstance(data, dict) else []
+                result_groups = []
+                for pkg in packages_raw:
+                    pkg_name = pkg.get("pkg_name", "")
+                    cover = pkg.get("current_cover", "")
+                    if cover.startswith("http:"):
+                        cover = "https:" + cover[5:]
+                    emotes = pkg.get("emoticons", [])
+                    group = {"name": pkg_name, "cover": cover, "emoticons": []}
+                    for em in emotes:
+                        img_url = em.get("url", "")
+                        if img_url.startswith("http:"):
+                            img_url = "https:" + img_url[5:]
+                        group["emoticons"].append({
+                            "emoji": em.get("emoticon_unique", "") or em.get("emoji", ""),
+                            "url": img_url,
+                            "descript": em.get("descript", "") or em.get("emoji", ""),
+                        })
+                    result_groups.append(group)
+                # 封面图转base64（只有9张，很快）
+                def _fetch_cover(g):
+                    url = g["cover"]
+                    if not url or url.startswith("data:"):
+                        return url
+                    try:
+                        r = requests.get(url, timeout=5, verify=False)
+                        if r.status_code == 200:
+                            return "data:image/png;base64," + base64.b64encode(r.content).decode()
+                    except Exception:
+                        pass
+                    return url
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    covers = list(executor.map(_fetch_cover, result_groups))
+                for g, c in zip(result_groups, covers):
+                    g["cover"] = c
+                total = sum(len(g["emoticons"]) for g in result_groups)
+                self.log(f"获取到 {total} 个表情，{len(result_groups)} 个分组")
+                return result_groups
+            else:
+                self.log(f"获取表情包失败: {result.get('message', '未知错误')}")
+                return []
+        except Exception as e:
+            self.log(f"获取表情包失败: {str(e)}")
+            return []
+
+    def _emoticons_to_base64(self, emoticons):
+        """批量将表情图片URL转base64"""
+        def _fetch_img(em):
+            img_url = em.get("url", "")
+            if img_url.startswith("data:"):
+                return img_url
+            try:
+                r = requests.get(img_url, timeout=5, verify=False)
+                if r.status_code == 200:
+                    b64 = base64.b64encode(r.content).decode()
+                    return "data:image/png;base64," + b64
+            except Exception:
+                pass
+            return img_url
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            return list(executor.map(_fetch_img, emoticons))
+
     def get_room_up_id(self, room_id):
         try:
             url = f"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={room_id}"
@@ -491,44 +627,81 @@ class BiliBarrageSender:
             return "pending"
 
     # ---- Send Danmaku ----
-    def _send_danmaku_thread(self, room_id, content, indices):
+    def _send_danmaku_thread(self, room_id, content, indices, dm_type=0):
         targets = [self.accounts[i] for i in indices if i < len(self.accounts)]
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
-            futures = [executor.submit(self.send_danmaku_to_room, account, room_id, content) for account in targets]
+            futures = [executor.submit(self.send_danmaku_to_room, account, room_id, content, dm_type) for account in targets]
             concurrent.futures.wait(futures)
 
-    def send_danmaku_to_room(self, account, room_id, content):
+    def send_danmaku_to_room(self, account, room_id, content, dm_type=0):
         try:
+            import random
+            import string
             nickname = account.get("nickname", "")
-            self.log(f"[{nickname}] 尝试向房间 {room_id} 发送弹幕: {content}")
+            self.log(f"[{nickname}] 尝试向房间 {room_id} 发送弹幕: {content} (dm_type={dm_type})")
             url = "https://api.live.bilibili.com/xlive/app-room/v1/dM/sendmsg"
             appkey = "4409e2ce8ffd12b8"
             appsecret = "59b43e04ad6965f34319062b478f83dd"
             ts = int(time.time())
+            mid = self._get_my_uid(account["key"]) or 0
+            buvid = "".join(random.choices(string.ascii_uppercase + string.digits, k=37))
             params = {
                 "access_key": account["key"],
                 "actionKey": "appkey",
                 "appkey": appkey,
+                "av_id": "-99998",
+                "bubble": "0",
+                "build": "8950600",
+                "channel": "bili",
                 "cid": room_id,
-                "msg": content,
-                "rnd": ts,
                 "color": "16777215",
+                "device": "android",
+                "disable_rcmd": "0",
                 "fontsize": "25",
+                "jumpfrom": "99998",
+                "jumpfrom_extend": "-99998",
+                "launch_id": "-99998",
+                "live_status": "prepare",
+                "mid": str(mid),
+                "mobi_app": "android",
                 "mode": "1",
-                "ts": ts,
+                "msg": content,
+                "msg_type": "0",
+                "platform": "android",
+                "playTime": "0.0",
+                "pool": "0",
+                "reply_attr": "0",
+                "reply_mid": "0",
+                "reply_type": "0",
+                "reply_uname": "",
+                "rnd": str(ts),
+                "room_type": "0",
+                "screen_status": "2",
+                "session_id": "-99998",
+                "ts": str(ts),
+                "type": "json",
+                "version": "8.95.0",
+                "bussiness_extend": json.dumps({"broadcast_type": "0", "stream_scale": "-99998", "watch_ui_type": "2"}),
+                "data_extend": json.dumps({"from_launch_id": "-99998", "from_session_id": "-99998", "live_key": "-99998", "sub_session_key": "-99998"}),
+                "flow_extend": json.dumps({"position": "1", "s_position": "1", "slide_direction": "-99998"}),
+                "live_statistics": json.dumps({"buvid": buvid, "session_id": "-99998", "launch_id": "-99998", "jumpfrom": "99998", "jumpfrom_extend": "-99998", "screen_status": "2", "live_status": "prepare", "av_id": "-99998"}),
+                "statistics": json.dumps({"appId": 1, "platform": 3, "version": "8.95.0", "abtest": ""}),
             }
+            if dm_type:
+                params["dm_type"] = str(dm_type)
             sign = self.sign_bilibili_params(params, appsecret)
             params["sign"] = sign
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "User-Agent": "Mozilla/5.0 BiliDroid/6.73.1 (bbcallen@gmail.com) os/android model/Mi 10 Pro mobi_app/android build/6731100 channel/xiaomi innerVer/6731110 osVer/12 network/2",
+                "Buvid": buvid,
             }
             response = requests.post(url, data=params, headers=headers)
             result = response.json()
             if result.get("code") == 0:
                 self.log(f"[{nickname}] 成功向房间 {room_id} 发送弹幕")
             else:
-                self.log(f"[{nickname}] 发送失败: {result.get('message', '未知错误')}")
+                self.log(f"[{nickname}] 发送失败: {result.get('message', '未知错误')} (code={result.get('code')})")
         except Exception as e:
             self.log(f"[{account.get('nickname', '')}] 发送异常: {str(e)}")
 
@@ -1219,7 +1392,7 @@ exit /b 0
             height=720,
             min_size=(1000, 600),
         )
-        webview.start(debug=False)
+        webview.start(debug=False, http_server=True)
 
 class BiliLiveWS:
     def __init__(self, app, room_id, uid, token, host, port, remark):

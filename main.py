@@ -92,12 +92,13 @@ class Api:
         self.app.login_cancelled = True
 
     # ---- Send Danmaku ----
-    def send_danmaku(self, room_id, content, account_indices_json, dm_type=0):
+    def send_danmaku(self, room_id, content, account_indices_json, dm_type=0, concurrent=0):
         indices = json.loads(account_indices_json)
         dm_type = int(dm_type)
+        use_concurrent = int(concurrent)
         threading.Thread(
             target=self.app._send_danmaku_thread,
-            args=(room_id, content, indices, dm_type),
+            args=(room_id, content, indices, dm_type, use_concurrent),
             daemon=True,
         ).start()
 
@@ -286,6 +287,7 @@ class BiliBarrageSender:
         self.current_log_file = None
         self.log_file_lock = threading.Lock()
         self._ensure_logs_dir()
+        self._cleanup_old_logs()
         self._update_log_file()
 
         # 加载配置
@@ -321,6 +323,22 @@ class BiliBarrageSender:
     def _ensure_logs_dir(self):
         if not os.path.exists(self.logs_dir):
             os.makedirs(self.logs_dir)
+
+    def _cleanup_old_logs(self):
+        cutoff = time.time() - 7 * 86400
+        for filename in os.listdir(self.logs_dir):
+            if filename == "latest.log" or not filename.endswith(".log"):
+                continue
+            filepath = os.path.join(self.logs_dir, filename)
+            try:
+                match = re.search(r"(\d{4}-\d{2}-\d{2})", filename)
+                if not match:
+                    continue
+                file_time = time.mktime(time.strptime(match.group(1), "%Y-%m-%d"))
+                if file_time < cutoff:
+                    os.remove(filepath)
+            except Exception:
+                pass
 
     def _update_log_file(self):
         latest = os.path.join(self.logs_dir, "latest.log")
@@ -627,11 +645,16 @@ class BiliBarrageSender:
             return "pending"
 
     # ---- Send Danmaku ----
-    def _send_danmaku_thread(self, room_id, content, indices, dm_type=0):
+    def _send_danmaku_thread(self, room_id, content, indices, dm_type=0, use_concurrent=0):
         targets = [self.accounts[i] for i in indices if i < len(self.accounts)]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
-            futures = [executor.submit(self.send_danmaku_to_room, account, room_id, content, dm_type) for account in targets]
-            concurrent.futures.wait(futures)
+        if use_concurrent:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as executor:
+                futures = [executor.submit(self.send_danmaku_to_room, account, room_id, content, dm_type) for account in targets]
+                concurrent.futures.wait(futures)
+        else:
+            for account in targets:
+                self.send_danmaku_to_room(account, room_id, content, dm_type)
+                time.sleep(0.5)
 
     def send_danmaku_to_room(self, account, room_id, content, dm_type=0):
         try:
@@ -898,9 +921,9 @@ class BiliBarrageSender:
         try:
             if task.get("job_id"):
                 schedule.cancel_job(task["job_id"])
-            for key in task["account_keys"]:
-                self.watch_manager.stop_watch(key, task["room_id"])
-                time.sleep(0.5)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(task["account_keys"]), 10)) as executor:
+                futures = [executor.submit(self.watch_manager.stop_watch, key, task["room_id"]) for key in task["account_keys"]]
+                concurrent.futures.wait(futures)
             task["status"] = "停止"
             task["job_id"] = None
             self.save_config()
@@ -960,9 +983,9 @@ class BiliBarrageSender:
         self.log("挂榜任务已启动")
 
     def _stop_watch_thread(self, room_id, selected_accounts):
-        for account in selected_accounts:
-            self.watch_manager.stop_watch(account["key"], room_id)
-            time.sleep(0.5)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(selected_accounts), 10)) as executor:
+            futures = [executor.submit(self.watch_manager.stop_watch, account["key"], room_id) for account in selected_accounts]
+            concurrent.futures.wait(futures)
         self.log("挂榜任务已停止")
 
     # ---- Schedule ----
@@ -1465,7 +1488,10 @@ class BiliLiveWS:
     def close(self):
         self.stop_heartbeat()
         if self.ws:
-            self.ws.close()
+            try:
+                self.ws.close(timeout=0.5)
+            except Exception:
+                pass
             self.ws = None
     
     def encode_packet(self, op, body):

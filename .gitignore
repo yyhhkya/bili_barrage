@@ -1,16 +1,4 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-
-# Build artifacts
-build/
-dist/
-*.spec
-
 # Runtime files
-logs/
 *.log
 
 # Network captures (DevTools HAR exports). These record full request and
@@ -25,13 +13,7 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Copilot
-AGENTS.md
-
-# Project specific
-help.md
-
-# Credentials. `config.json` holds Bilibili access_keys, and the exact-name
-# rule let a hand-made copy ("config copy.json") sit untracked-but-committable.
-# Match the whole family instead.
+# Credentials. The app's config.json holds Bilibili access_keys, and this used
+# to be an exact-name rule — which let a hand-made copy ("config copy.json")
+# sit untracked-but-committable. Match the whole family instead.
 config*.json

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Smiley, PaperPlaneTilt, UserCircle } from '@phosphor-icons/react'
+import { Smiley, PaperPlaneTilt, UserCircle, X } from '@phosphor-icons/react'
 import type { Emoticon, EmoticonGroup } from '@shared/types'
 import { useAppState } from '../lib/store'
 import { useToast } from '../lib/toast'
@@ -17,6 +17,13 @@ export function SendPage(): React.ReactElement {
 
   const [roomId, setRoomId] = useState('')
   const [content, setContent] = useState('')
+  /**
+   * A selected paid emoticon. While this is set the text field is replaced by a
+   * chip and the message is the emoticon's server id with dm_type=1 — the two
+   * cannot be mixed, so the form shows one or the other rather than a string
+   * that would silently go out as literal text.
+   */
+  const [emoticon, setEmoticon] = useState<Emoticon | null>(null)
   const [selected, setSelected] = useState<number[]>([])
   const [concurrent, setConcurrent] = useState(true)
   const [sending, setSending] = useState(false)
@@ -29,7 +36,8 @@ export function SendPage(): React.ReactElement {
   const [groupItems, setGroupItems] = useState<Emoticon[]>([])
   const [loadingEmoji, setLoadingEmoji] = useState(false)
 
-  const canSend = roomId.trim() !== '' && content.trim() !== '' && selected.length > 0
+  const canSend =
+    roomId.trim() !== '' && (emoticon !== null || content.trim() !== '') && selected.length > 0
 
   const selectedLabel = useMemo(() => {
     if (!selected.length) return '未选择账号'
@@ -74,9 +82,30 @@ export function SendPage(): React.ReactElement {
     }
   }
 
-  function insertEmoji(emoticon: Emoticon): void {
-    setContent((c) => c + emoticon.emoji)
+  /**
+   * Picking an emoticon takes over the whole message rather than appending to
+   * it, which is what the Python build did.
+   *
+   * The two kinds of emoticon travel differently and cannot be mixed:
+   * - group 0 is the free system set, whose "id" is just bracketed text
+   *   (`[妙啊]`). It goes out as an ordinary danmaku that every client renders.
+   * - every other group is a paid package addressed by an opaque id, and the
+   *   server draws the image only when that id is the ENTIRE message and
+   *   dm_type is 1. Appending text around it would post the id as literal text.
+   *
+   * So the field shows the readable label and the id rides along in state.
+   */
+  function insertEmoji(picked: Emoticon, groupIndex: number): void {
     setEmojiOpen(false)
+    // Group 0 is the free system set: bracketed text that every client renders
+    // on its own, so it is ordinary danmaku and belongs in the text field.
+    if (groupIndex === 0) {
+      setEmoticon(null)
+      setContent(picked.descript || picked.unique)
+      return
+    }
+    setEmoticon(picked)
+    setContent('')
   }
 
   async function send(): Promise<void> {
@@ -84,9 +113,16 @@ export function SendPage(): React.ReactElement {
     setSending(true)
     setError(null)
     try {
-      await window.api.sendDanmaku(roomId.trim(), content, selected, 0, concurrent)
+      await window.api.sendDanmaku(
+        roomId.trim(),
+        emoticon ? emoticon.unique : content,
+        selected,
+        emoticon ? 1 : 0,
+        concurrent
+      )
+      // The message is deliberately left in the field: sending the same text to
+      // another room, or again after a tweak, is the common case.
       toast.success(`已向房间 ${roomId.trim()} 发送弹幕`)
-      setContent('')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -127,16 +163,43 @@ export function SendPage(): React.ReactElement {
             />
           </Field>
 
-          <Field label="弹幕内容">
+          <Field
+            label="弹幕内容"
+            hint={emoticon ? '将以表情形式发送，与文字不混排。' : undefined}
+          >
             <div className="flex items-start gap-2">
-              <Input
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && canSend) void send()
-                }}
-                placeholder="输入要发送的弹幕"
-              />
+              {emoticon ? (
+                <div className="flex h-8 w-full items-center gap-2 rounded-control border border-accent bg-accent-wash px-2.5">
+                  <img
+                    src={emoticon.url}
+                    alt=""
+                    className="size-5 shrink-0 object-contain"
+                    width={20}
+                    height={20}
+                  />
+                  <span className="truncate text-[13px] text-ink">
+                    {emoticon.descript || '表情'}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[11.5px] text-ink-3">表情</span>
+                  <button
+                    type="button"
+                    onClick={() => setEmoticon(null)}
+                    aria-label="取消表情"
+                    className="press shrink-0 rounded-compact p-0.5 text-ink-3 hover:text-ink"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <Input
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && canSend) void send()
+                  }}
+                  placeholder="输入要发送的弹幕"
+                />
+              )}
               <Popover
                 open={emojiOpen}
                 onOpenChange={(o) => (o ? void openEmojiPanel() : setEmojiOpen(false))}
@@ -212,15 +275,15 @@ export function SendPage(): React.ReactElement {
                       <div className="grid max-h-[320px] grid-cols-6 gap-1 overflow-y-auto">
                         {groupItems.map((item) => (
                           <button
-                            key={item.emoji}
+                            key={item.unique}
                             type="button"
-                            onClick={() => insertEmoji(item)}
-                            title={item.descript || item.emoji}
+                            onClick={() => insertEmoji(item, activeGroup)}
+                            title={item.descript || item.unique}
                             className="press flex flex-col items-center gap-0.5 rounded-compact p-1.5 hover:bg-subtle"
                           >
                             <img
                               src={item.url}
-                              alt={item.descript || item.emoji}
+                              alt={item.descript || item.unique}
                               className="size-11 object-contain"
                               width={44}
                               height={44}

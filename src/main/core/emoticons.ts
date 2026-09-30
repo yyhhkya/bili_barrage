@@ -53,7 +53,7 @@ export class EmoticonService {
       name: g.name,
       cover: covers[i],
       // Image URLs are omitted here; they arrive via loadGroup on tab open.
-      emoticons: g.emoticons.map((e) => ({ emoji: e.emoji, url: '', descript: e.descript }))
+      emoticons: g.emoticons.map((e) => ({ unique: e.unique, url: '', descript: e.descript }))
     }))
   }
 
@@ -67,7 +67,7 @@ export class EmoticonService {
 
     const urls = await mapLimit(group.emoticons, IMAGE_CONCURRENCY, (e) => this.inline(e.url))
     const result = group.emoticons.map((e, i) => ({
-      emoji: e.emoji,
+      unique: e.unique,
       url: urls[i],
       descript: e.descript
     }))

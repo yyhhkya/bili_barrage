@@ -44,8 +44,17 @@ export interface EmoticonGroup {
 }
 
 export interface Emoticon {
-  emoji: string
+  /**
+   * The server's opaque id for the image (`emoticon_unique`), not display text.
+   *
+   * Sending this id as the danmaku body is what draws the image: the server
+   * substitutes the emoticon only when the id is the entire message and the
+   * request carries dm_type=1. Sending it with dm_type=0 posts the raw id as
+   * literal text, which is the bug this field name used to invite.
+   */
+  unique: string
   url: string
+  /** Human label. For the free system set this is the bracketed text, e.g. `[妙啊]`. */
   descript: string
 }
 

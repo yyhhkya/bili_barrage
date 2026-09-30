@@ -126,7 +126,8 @@ export async function fetchRoomUpId(roomId: string): Promise<number | null> {
 // ---------------------------------------------------------------- emoticons
 
 export interface RawEmoticon {
-  emoji: string
+  /** The server's opaque id, NOT display text. See Emoticon.unique in shared/types. */
+  unique: string
   url: string
   descript: string
 }
@@ -176,7 +177,9 @@ export async function fetchEmoticons(accessKey: string, roomId = ''): Promise<Ra
     name: pkg.pkg_name || '',
     cover: upgradeScheme(pkg.current_cover || ''),
     emoticons: (pkg.emoticons || []).map((em) => ({
-      emoji: em.emoticon_unique || em.emoji || '',
+      // `emoticon_unique` is what the send endpoint wants back; `emoji` is the
+      // bracketed display text (`[妙啊]`) and is only a fallback label.
+      unique: em.emoticon_unique || em.emoji || '',
       url: upgradeScheme(em.url || ''),
       descript: em.descript || em.emoji || ''
     }))

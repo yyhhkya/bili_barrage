@@ -22,12 +22,23 @@ upgrade) or ImageMagick (an external tool every build machine would need).
 
 ### Design notes
 
-A danmaku speech bubble on a warm gold tile, in the app's own palette.
+The character 弹 on a gold tile — two elements, no effects.
 
-- The silhouette is one bold shape plus three dots, so it still reads at 16px
-  in the taskbar. Detail (gradient, gloss, sparkle) is additive: losing it at
-  small sizes costs nothing.
-- Nothing is drawn with a stroke thinner than 8px at 256, because finer work
-  turns to mush when scaled down.
-- The tile gloss is a radial gradient rather than a shaped overlay. A path with
-  its own corner radius reads as a second edge laid over the first.
+- The glyph is ZCOOL KuaiLe, the font the whole UI is set in
+  (`tokens.css` → `--font-sans`), so the icon and the window read as one product.
+  It is stored as an outline path rather than `<text>` so rasterising never
+  depends on a font being installed.
+- The tile is a saturated gold, not a pale cream, because a pale tile vanishes
+  against a white Explorer background. Gold separates from light and dark alike.
+- The tile gradient is deepened (relative to the original `#FFDE79 → #EFB62E`)
+  so cream clears it everywhere. At the original top stop the glyph's densest
+  strokes landed on the lightest part of the gradient and dissolved into it.
+- Removed: sparkle, gloss, drop shadow, glyph gradient. Each competed for the
+  same 256px and none survived being scaled to 16px.
+- Trade-off accepted: 弹 has 12 strokes, so at 16px it is a blob. The taskbar
+  and Alt-Tab read the silhouette; the character is legible from 32px up.
+
+Redoing the outline after a font change: parse
+`@fontsource/zcool-kuaile/files/zcool-kuaile-113-400-normal.woff` (U+5F39) with
+opentype.js and rescale `glyph.getPath(0, 0, 1000)` by
+`150 / max(bbox width, bbox height)` about the tile centre.

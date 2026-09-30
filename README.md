@@ -28,18 +28,23 @@ npm run typecheck    # 主进程 + 渲染层分别做类型检查
 ## 打包
 
 ```bash
-npm run build:win    # 产出 dist/bili-barrage-Setup-<version>.exe
+npm run build:win    # 产出 dist/ 下的安装包和绿色版
 ```
 
 产物：
 
 | 文件 | 用途 |
 |---|---|
-| `bili-barrage-Setup-3.0.0.exe` | NSIS 安装包 |
+| `bili-barrage-Setup-3.0.0.exe` | NSIS 安装包，自动更新的载体 |
+| `bili-barrage-3.0.0.exe` | 免安装绿色版，双击即跑 |
 | `latest.yml` | electron-updater 读取的版本清单 |
 | `bili-barrage-Setup-3.0.0.exe.blockmap` | 差分更新用 |
 
-发版时这三个都要上传到 GitHub Release 的对应 tag。
+发版时前三个（Setup、latest.yml、blockmap）必须传，绿色版可传可不传。
+
+绿色版不走更新通道：它每次启动解压到 `%TEMP%`，冷启动比安装版慢一两秒，
+且 electron-updater 不支持 portable 目标。用绿色版的人靠重新下载更新，
+`latest.yml` 始终只指向 NSIS 安装包。它的文件名里没有 `Setup`，别和安装包搞混。
 
 ## 发版
 

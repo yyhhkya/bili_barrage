@@ -18,8 +18,19 @@ win:
   target:
     - target: nsis
       arch: [x64]
+    - target: portable
+      arch: [x64]
   artifactName: ${productName}-Setup-${version}.${ext}
   icon: resources/icon.ico
+
+# No-install build: one exe that runs from wherever it sits, for handing someone
+# a copy without an install step. Deliberately NOT the update channel: this
+# target unpacks to %TEMP% on every launch (slower cold start) and
+# electron-updater does not support it, so `latest.yml` keeps pointing at the
+# NSIS installer. Portable users update by re-downloading.
+portable:
+  artifactName: ${productName}-${version}.${ext}
+  requestExecutionLevel: user
 
 nsis:
   oneClick: false

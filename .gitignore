@@ -1,3 +1,11 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+*.tsbuildinfo
+
 # Runtime files
 *.log
 
@@ -13,7 +21,7 @@
 .DS_Store
 Thumbs.db
 
-# Credentials. The app's config.json holds Bilibili access_keys, and this used
-# to be an exact-name rule — which let a hand-made copy ("config copy.json")
+# Credentials. The app's config.json holds Bilibili access_keys, and this was
+# once an exact-name rule — which let a hand-made copy ("config copy.json")
 # sit untracked-but-committable. Match the whole family instead.
 config*.json

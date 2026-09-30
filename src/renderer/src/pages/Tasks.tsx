@@ -261,25 +261,23 @@ export function TasksPage(): React.ReactElement {
                 <Input
                   value={form.room_remark}
                   onChange={(e) => setForm((f) => ({ ...f, room_remark: e.target.value }))}
-                  placeholder="例如：日常打卡"
                 />
               </Field>
               <Field label="房间号" className="w-40">
                 <Input
                   value={form.room_id}
                   onChange={(e) => setForm((f) => ({ ...f, room_id: e.target.value }))}
-                  placeholder="30866874"
+                  placeholder="例如：30866874"
                   inputMode="numeric"
                 />
               </Field>
             </div>
 
-            <Field label="弹幕内容" hint="多条用英文逗号分隔，例如：打卡,晚上好,来了">
+            <Field label="弹幕内容" hint="多条用英文逗号分隔">
               <Textarea
                 rows={3}
                 value={form.content}
                 onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-                placeholder="打卡,晚上好"
               />
             </Field>
 

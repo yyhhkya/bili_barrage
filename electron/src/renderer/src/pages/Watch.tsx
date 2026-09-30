@@ -28,7 +28,8 @@ export function WatchPage(): React.ReactElement {
 
   const canAct = roomId.trim() !== '' && selected.length > 0
 
-  // Two groupings over the same set, which is how the original presented it.
+  // Two views over the same set: by account answers "what is this account on",
+  // by room answers "who is in this room".
   const byAccount = useMemo(() => {
     const map = new Map<string, string[]>()
     for (const entry of watch) {

@@ -4,9 +4,9 @@ import { APPSECRET } from './constants'
 /**
  * Bilibili app-key signing.
  *
- * The Python original joins `k=v` over ASCII-sorted keys, appends the appsecret
- * with no separator, and MD5s the result. Values are interpolated raw: no URL
- * encoding is applied.
+ * Bilibili signs by joining `k=v` over ASCII-sorted keys, appending the
+ * appsecret with no separator, and MD5-ing the result. Values are interpolated
+ * raw: no URL encoding is applied.
  *
  * Callers must compute the sign BEFORE inserting `sign` into the params object,
  * so `sign` is never part of the signed string.

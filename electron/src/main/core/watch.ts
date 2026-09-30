@@ -26,14 +26,13 @@ interface WatchSession {
 /**
  * "挂榜" presence manager: enters a room and keeps it alive.
  *
- * Per room+account this maintains two independent cadences, same as the Python
- * original:
+ * Per room+account this maintains two independent cadences:
  * - WebSocket op-2 heartbeat, every 30 s (send-only socket)
  * - HTTP webHeartBeat, every 60 s, plus one immediately on start
  *
- * Difference from the Python version: sessions are keyed explicitly and every
- * timer handle is tracked, so `stopWatch` reliably cancels. The original stored
- * a `threading.Timer` inside a lock-free dict and could orphan a live timer.
+ * Sessions are keyed explicitly and every timer handle is held on the session,
+ * so `stopWatch` always cancels the real timer. Storing the handle anywhere
+ * less direct is how you end up with a live interval nobody can reach.
  */
 export class WatchManager extends EventEmitter {
   private readonly sessions = new Map<string, WatchSession>()

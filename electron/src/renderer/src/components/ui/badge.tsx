@@ -75,7 +75,8 @@ export function StatusPill({ status }: { status: TaskStatus }): React.ReactEleme
 
 /**
  * Counts with a ceiling. Warns as the account approaches the daily like cap,
- * which is the reason the original showed these numbers at all.
+ * which is the reason these numbers are shown at all: hitting the cap silently
+ * would look like the like simply failed.
  *
  * When the tone escalates (neutral -> warn -> danger) the badge cross-fades
  * rather than snapping. That transition is the whole point of the widget: it is

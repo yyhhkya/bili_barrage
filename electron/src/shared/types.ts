@@ -80,8 +80,9 @@ export interface MirrorResult {
 /**
  * QR login poll result.
  * `pending` and `failed` are sentinels; anything else is an access key.
- * Matches the Python behaviour: every non-zero Bilibili code collapses to
- * `pending`, including 86038 (expired) and 86090 (scanned, not confirmed).
+ * Every non-zero Bilibili code collapses to `pending`, including 86038
+ * (expired) and 86090 (scanned, not yet confirmed), so the renderer cannot tell
+ * "expired" from "still waiting".
  */
 export type LoginPollResult = 'pending' | 'failed' | string
 

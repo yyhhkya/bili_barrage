@@ -1,4 +1,4 @@
-/** Constants transcribed from the Python implementation (main.py). */
+/** Bilibili API constants: endpoints, public app credentials, timings. */
 
 export const GITHUB_REPO = 'yyhhkya/bili_barrage'
 

@@ -8,14 +8,14 @@ const OP_AUTH = 7
 /**
  * Bilibili live-room WebSocket client.
  *
- * Deliberately mirrors the Python `BiliLiveWS`, including its limitations:
- * - **Send-only.** There is no message handler. Incoming frames (including the
+ * Limitations, all deliberate:
+ * - **Send-only.** No message handler; incoming frames (including the
  *   zlib-compressed op-3 popularity packets that `protover: 2` requests) are
  *   received and dropped.
- * - **No reconnect.** If the socket drops, it stays dropped. Presence is kept
- *   alive by the separate HTTP heartbeat in watch.ts.
- * - Heartbeat is a self-rescheduling 30 s timer, so drift accumulates the same
- *   way `threading.Timer` did.
+ * - **No reconnect.** If the socket drops it stays dropped. Presence is kept
+ *   alive by the separate HTTP heartbeat in watch.ts, which is what actually
+ *   counts.
+ * - Heartbeat is a self-rescheduling 30 s timer, so drift accumulates.
  *
  * Adding op-3 decoding and reconnect is a follow-up, not part of this port.
  */
@@ -123,8 +123,7 @@ export class BiliLiveWS {
     if (!ws) return
     try {
       ws.close(1000)
-      // ws has no close timeout; force-terminate shortly after to match the
-      // Python 0.5 s close(timeout=...) behaviour.
+      // The close handshake can hang; force-terminate rather than wait.
       const t = setTimeout(() => ws.terminate(), 500)
       ws.once('close', () => clearTimeout(t))
     } catch {

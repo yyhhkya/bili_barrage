@@ -22,10 +22,10 @@ const MIRRORS: Array<{ name: string; prefix: string }> = [
 /**
  * Update checking and applying.
  *
- * The Python build downloaded a bare .exe and swapped it in place with a
- * generated batch script (PID wait, .new/.backup rename dance, three restart
- * attempts, rollback). electron-updater owns all of that now, which is why this
- * file is short: packaged builds are NSIS installers that it can replace.
+ * This file is short on purpose. Replacing a running executable means waiting
+ * on the old process, staging the new binary, renaming, relaunching and rolling
+ * back on failure. electron-updater owns all of that, which is only possible
+ * because the packaged build is an NSIS install rather than a bare .exe.
  */
 export class Updater extends EventEmitter {
   private progress: UpdateProgress = { percent: 0, status: 'idle', message: '' }
@@ -136,8 +136,9 @@ export class Updater extends EventEmitter {
   }
 
   /**
-   * Probe each mirror for reachability. A 4xx still counts as reachable, so the
-   * test is `status < 500`, matching the Python implementation.
+   * Probe each mirror for reachability. A 4xx still counts as reachable: the
+   * mirror answered, which is all this test is asking. Only 5xx and network
+   * failures are treated as down, so the test is `status < 500`.
    */
   async testMirrors(): Promise<MirrorResult[]> {
     this.mirrorResults = MIRRORS.map((m) => ({

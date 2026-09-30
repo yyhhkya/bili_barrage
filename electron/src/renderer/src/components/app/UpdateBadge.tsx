@@ -25,7 +25,7 @@ export function UpdateBadge(): React.ReactElement {
   const [mirrors, setMirrors] = useState<MirrorResult[]>([])
   const [testing, setTesting] = useState(false)
 
-  // One check per launch, matching the original.
+  // One check per launch is enough; a background poll would only add noise.
   useEffect(() => {
     void (async () => {
       try {

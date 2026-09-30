@@ -1,7 +1,9 @@
 /**
  * Runs `fn` over `items` with at most `limit` in flight, preserving order.
- * Replaces the `ThreadPoolExecutor(max_workers=...)` pattern from the Python
- * version, which spawned one thread per account.
+ *
+ * Every multi-account action (send, like, watch) fans out through this, so one
+ * slow or hanging account cannot stall the rest, and a long account list cannot
+ * open hundreds of sockets at once.
  */
 export async function mapLimit<T, R>(
   items: readonly T[],

@@ -1,8 +1,8 @@
-# B站弹幕助手 (Electron)
+# B站弹幕助手
 
 多账号 B 站直播助手：发送弹幕、点赞、挂榜、定时任务。
 
-这是 Electron 重写版，代替仓库根目录的 Python + pywebview 版本。后端是纯 Node，不再需要 Python 运行时。
+Electron 应用，后端是纯 Node，不需要 Python 运行时。
 
 ## 开发
 
@@ -47,9 +47,9 @@ npm run build:win    # 产出 dist/bili-barrage-Setup-<version>.exe
 └── emoji-cache\      表情图片缓存，按 URL 的 sha1 命名
 ```
 
-## 从旧版迁移
+## 导入已有配置
 
-不写迁移代码。装了新版后，到「账号管理」用**导入旧版配置**选中旧的 `config.json`，账号和定时任务会按 access_key 去重后导入。也可以直接把旧文件拷到上面的目录。
+「账号管理」页有**导入配置**，选一个已有的 `config.json`，账号和定时任务会按 access_key 去重后导入。也可以直接把文件拷到上面的目录。
 
 ## 结构
 
@@ -148,21 +148,21 @@ Vocabulary 集中在 `lib/motion.ts`，组件从那里取 spring/变体，不各
 1. **只动 `transform` 和 `opacity`**，不动 `width`/`height`/`top`/`left`，否则绕过合成器、掉帧
 2. **`prefers-reduced-motion` 必须兜住**，走 `lib/use-reduced-motion.ts`。注意**没有直接用 Motion 自带的 `useReducedMotion()`** —— 它内部是 `useState(prefersReducedMotion.current)`，只在挂载时读一次、且丢弃了 setter（他们源码里还留着 TODO）。也就是说运行中改系统设置不会生效。Electron 窗口常常开着好几天，这个不能将就，所以自己订阅了 media query
 
-## 行为对齐说明
+## 几个刻意的取舍
 
-以下行为是有意保留的，和 Python 版一致：
+有些地方看起来可以"更好"，但它们是有意这样的：
 
-- **WebSocket 是只发的**：没有 message handler，收到的包（含 op-3 人气值）全部丢弃，也不重连。挂榜靠独立的 60 秒 HTTP 心跳维持。解析人气值和断线重连是后续增强，不在本次范围
+- **WebSocket 是只发的**：没有 message handler，收到的包（含 op-3 人气值）全部丢弃，也不重连。挂榜靠独立的 60 秒 HTTP 心跳维持，那才是真正起作用的东西。解析人气值和断线重连是后续增强
 - **弹幕不做长度切分**，原样发送
 - **扫码登录**只判断 `code == 0`，过期码（86038）会一直返回 `pending` 而不是报过期。取消按钮是出口
 - **限速**：顺序模式账号间间隔 0.5 秒；并发模式无间隔
 - **点赞计数**只保留当天，按 `日期|房间|access_key` 存进 config.json
 
-有意的改动：
+架构上与前端的若干决定：
 
-- 轮询改成推送。旧版渲染层每 5 秒查状态、每 500 毫秒查日志，现在由主进程主动推事件
-- IPC 统一传结构化对象。旧版有 9 个方法返回 JSON 字符串、前端再 `parse`，这层没了
-- `threading` / `ThreadPoolExecutor` 换成单事件循环 + `Promise.all` 限流，旧版那批无锁竞态（`WatchManager` 的字典并发读写、迭代中改动抛 `RuntimeError`）自然消失
+- **轮询改成推送**。渲染层不轮询，状态、日志、更新进度、镜像测速全部由主进程推事件
+- **IPC 传结构化对象**，不再有"字符串里套 JSON、前端再 parse"这层
+- **单事件循环**。所有多账号操作经 `mapLimit` 限流扇出，没有真实线程，共享状态不会被并发写坏
 
 ## 待补
 

@@ -19,10 +19,9 @@ interface CacheEntry {
 /**
  * Fetches emoticon packages and inlines every image as a data URL.
  *
- * The Python version re-downloaded images on every panel open. Here they are
- * cached on disk under `<userData>/emoji-cache/<sha1>`, so repeat opens are
- * free. No image-processing dependency is introduced: bytes go straight to a
- * data URL, which is what the renderer needs anyway.
+ * Images are cached on disk under `<userData>/emoji-cache/<sha1>`, so reopening
+ * the panel costs nothing. No image-processing dependency is introduced: bytes
+ * go straight to a data URL, which is what the renderer needs anyway.
  */
 export class EmoticonService {
   private readonly cacheDir: string
@@ -134,8 +133,8 @@ function sniffMime(buf: Buffer): string {
 /**
  * Renders the login URL to a PNG data URL.
  *
- * The Python version used `qrcode` + PIL. `qrcode` still does the encoding;
- * rendering goes through its own buffer API, so no image library is needed.
+ * `qrcode` does the encoding and renders through its own buffer API, so no
+ * image library (PIL, sharp) is needed.
  */
 export async function renderQrCode(url: string): Promise<string> {
   return QRCode.toDataURL(url, {

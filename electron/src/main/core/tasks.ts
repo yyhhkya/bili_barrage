@@ -14,8 +14,7 @@ interface RunningTask {
 }
 
 /**
- * Scheduled danmaku sending. Replaces the `schedule` library plus the
- * `Thread + Timer` pairs in the Python original.
+ * Scheduled danmaku sending.
  *
  * Behaviour preserved:
  * - starting a task also starts watch/presence for its accounts
@@ -178,7 +177,7 @@ export class TaskRunner extends EventEmitter {
       return
     }
 
-    // Sequential mode sleeps between accounts, matching the Python loop.
+    // Sequential mode spaces the accounts out; concurrent mode does not.
     for (const account of accounts) {
       await send(account)
       await sleep(TIMING.sequentialDanmakuGap)

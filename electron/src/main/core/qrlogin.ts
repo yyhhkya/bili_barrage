@@ -6,14 +6,13 @@ import type { Logger } from './logger'
 /**
  * QR login ("扫码登录") using the TV endpoint.
  *
- * Pull-based, matching the original: the renderer polls `poll()` every 2.5 s
- * because the underlying Bilibili endpoint is itself a poll. On success the
- * renderer resolves the nickname and adds the account, so the account list
- * stays the renderer's concern.
+ * Pull-based: the renderer polls `poll()` every 2.5 s because the underlying
+ * Bilibili endpoint is itself a poll. On success the renderer resolves the
+ * nickname and adds the account, so the account list stays its concern.
  *
- * Rough edge carried over from the Python version: any code other than 0
- * returns `pending`, so an expired code (86038) polls forever instead of
- * reporting expiry. The renderer's cancel button is the escape hatch.
+ * Known rough edge: any code other than 0 returns `pending`, so an expired code
+ * (86038) polls forever instead of reporting expiry. The renderer's cancel
+ * button is the escape hatch.
  */
 export class QrLogin {
   private authCode: string | null = null

@@ -26,8 +26,8 @@ const EMPTY_STATE: AppState = { accounts: [], tasks: [], version: '' }
  * Single source of truth for renderer state.
  *
  * The main process pushes `state:changed` / `watch:changed` / `log:line`, so
- * there is no polling here. The Python build polled every 5 s for state and
- * every 500 ms for logs; both loops are gone.
+ * nothing here polls. Log lines can arrive in bursts, so they are batched at
+ * roughly 10 fps before hitting React state.
  */
 export function StoreProvider({ children }: { children: ReactNode }): ReactNode {
   const [state, setState] = useState<AppState>(EMPTY_STATE)

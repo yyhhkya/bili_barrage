@@ -18,8 +18,8 @@ function broadcast<K extends keyof PushEvents>(channel: K, payload: PushEvents[K
 
 /**
  * Wraps a handler so the renderer always receives an `IpcResult` instead of an
- * exception crossing the bridge. The Python version had no equivalent: a raised
- * exception surfaced as an opaque null in JS.
+ * exception crossing the bridge. Without this an exception is swallowed by the
+ * bridge and the renderer sees an opaque null, which is impossible to debug.
  */
 function handle<A extends unknown[], R>(
   channel: string,
@@ -97,10 +97,10 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
   })
 
   // ------------------------------------------------------------ legacy
-  /** Carry accounts and tasks over from a Python-build config.json. */
+  /** Carry accounts and tasks over from a config.json of an earlier build. */
   handle('api:importLegacyConfig', async () => {
     const result = await dialog.showOpenDialog({
-      title: '选择旧版 config.json',
+      title: '选择 config.json',
       properties: ['openFile'],
       filters: [{ name: '配置文件', extensions: ['json'] }]
     })
@@ -126,7 +126,7 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
     }
 
     app.saveConfig()
-    app.logger.log(`导入旧版配置: ${added.length} 个账号, ${newTasks.length} 个任务`)
+    app.logger.log(`导入配置: ${added.length} 个账号, ${newTasks.length} 个任务`)
     app.emitState()
 
     return { imported: true, accounts: added.length, tasks: newTasks.length }

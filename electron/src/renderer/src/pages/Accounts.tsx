@@ -129,7 +129,7 @@ export function AccountsPage(): React.ReactElement {
           <EmptyState
             icon={<UserCircle size={18} />}
             title="还没有账号"
-            description="用扫码登录自动获取，或手动粘贴一条 access_key。如果你在用旧版，可以直接导入它的配置文件。"
+            description="用扫码登录自动获取，或手动粘贴一条 access_key。也可以从已有的 config.json 批量导入。"
             action={
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => setQrOpen(true)}>
@@ -138,7 +138,7 @@ export function AccountsPage(): React.ReactElement {
                 </Button>
                 <Button onClick={() => void importLegacy()} disabled={importing}>
                   <UploadSimple size={15} />
-                  {importing ? '导入中...' : '导入旧版配置'}
+                  {importing ? '导入中...' : '导入配置'}
                 </Button>
               </div>
             }
@@ -192,7 +192,7 @@ export function AccountsPage(): React.ReactElement {
           <div className="mt-3 flex justify-end">
             <Button size="sm" variant="ghost" onClick={() => void importLegacy()} disabled={importing}>
               <UploadSimple size={14} />
-              {importing ? '导入中...' : '从旧版配置导入'}
+              {importing ? '导入中...' : '导入配置'}
             </Button>
           </div>
         </>

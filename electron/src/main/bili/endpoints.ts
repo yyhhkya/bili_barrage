@@ -4,10 +4,11 @@ import { APPKEY, ENDPOINTS, UA } from './constants'
 import { randomBuvid } from '../core/random'
 
 /**
- * Replicates `response.headers['Set-Cookie'].split(';')` + re-join from the
- * Python original, including its quirks: attribute fragments that happen to
- * contain '=' (Path, Expires) are folded in, and values are truncated at the
- * first '='. Bilibili tolerates the resulting header, and it is what ships today.
+ * Naive Set-Cookie parsing: split on ';' and re-join every fragment that
+ * contains '='. That folds attribute fragments (Path, Expires) into the cookie
+ * string and truncates a value at its first '='. Sloppy, but Bilibili accepts
+ * the resulting header, and a strict cookie jar would drop the attribute
+ * fragments the presence heartbeat currently sends.
  */
 function extractCookie(setCookie: string[]): string {
   if (!setCookie.length) return ''
@@ -136,7 +137,8 @@ export interface RawEmoticonGroup {
   emoticons: RawEmoticon[]
 }
 
-/** `http:` -> `https:` rewrite applied by the Python original. */
+/** Bilibili serves some emote assets over plain http; upgrade so the strict CSP
+ * and mixed-content rules stay satisfied. */
 function upgradeScheme(url: string): string {
   return url.startsWith('http:') ? `https:${url.slice(5)}` : url
 }
@@ -206,8 +208,10 @@ export async function requestQrCode(): Promise<{ url: string; authCode: string }
 /**
  * Returns an access key on success, otherwise `'pending'`.
  * Every non-zero Bilibili code collapses to `pending`, including 86038
- * (expired) and 86090 (scanned, not yet confirmed) -- matches the Python
- * behaviour, which reports "expired" as pending forever.
+ * (expired) and 86090 (scanned, not yet confirmed). An expired code therefore
+ * polls forever rather than reporting expiry; the dialog cancel button is the
+ * only escape. Telling them apart would mean handling the endpoint error codes
+ * explicitly.
  */
 export async function pollQrLogin(authCode: string): Promise<string> {
   const data = withSign({

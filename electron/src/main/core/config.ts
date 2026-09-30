@@ -5,7 +5,7 @@ import type { Account, Task } from '../../shared/types'
 export interface ConfigFile {
   accounts: Account[]
   tasks: Task[]
-  /** Flattened as `date|room_id|account_key` -> count, same as the Python version. */
+  /** Flattened as `date|room_id|account_key` -> count. */
   like_counts: Record<string, number>
 }
 
@@ -70,7 +70,7 @@ export function writeConfig(configPath: string, config: ConfigFile): void {
 }
 
 /**
- * Reads a config.json produced by the Python build so accounts and tasks can be
+ * Reads a config.json from an earlier build so accounts and tasks can be
  * carried over. Only the portable fields are taken: like_counts refers to the
  * old run's dates, and `job_id` has no meaning here.
  */

@@ -9,8 +9,7 @@ type LogListener = (line: string) => void
 /**
  * File-backed logger with a replayable ring buffer.
  *
- * Ports `_ensure_logs_dir` / `_cleanup_old_logs` / `_update_log_file` / `log`
- * from the Python original:
+ * Behaviour:
  * - `latest.log` holds the current run
  * - on startup the previous `latest.log` is archived to `<date>-<n>.log`
  * - archives older than 7 days are deleted on startup

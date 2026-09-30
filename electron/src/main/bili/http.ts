@@ -52,7 +52,7 @@ async function request<T>(
   if (method === 'POST') {
     const body = toSearchParams(form ?? params ?? {}).toString()
     init.body = body
-    // Python's requests sets this for a dict body; callers may still override it.
+    // Form-encoded by default; a caller may still override it.
     if (!('Content-Type' in init.headers!)) {
       ;(init.headers as Record<string, string>)['Content-Type'] =
         'application/x-www-form-urlencoded'
@@ -101,8 +101,9 @@ export interface BiliEnvelope<T> {
 }
 
 /**
- * Reproduces the Python `result.get('message', '未知错误')` idiom, which also
- * picks up `msg` on endpoints that use that spelling.
+ * Bilibili spells the error field both ways across endpoints; `message` is the
+ * common one but `msg` appears too, so a generic string is only used when
+ * neither is present.
  */
 export function errMessage(env: BiliEnvelope<unknown>): string {
   return env.message || env.msg || '未知错误'

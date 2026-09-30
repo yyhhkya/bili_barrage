@@ -7,13 +7,12 @@ import { WatchManager } from './watch'
 import { TaskRunner } from './tasks'
 
 /**
- * Central application state. Replaces the Python `BiliBarrageSender`.
+ * Central application state.
  *
- * Threading note: the original mutated `accounts` / `tasks` / `watch_manager.*`
- * from many threads with no locks, which produced races (notably a
- * `RuntimeError` when `get_watch_status` iterated a dict being mutated).
- * Everything here runs on one event loop, so those hazards are gone by
- * construction. Timer handles are tracked explicitly instead.
+ * Concurrency note: everything here runs on one event loop, so the shared
+ * `accounts` / `tasks` / watch state cannot be torn by concurrent writers the
+ * way it would be with real threads. Timer handles are still tracked
+ * explicitly, because a leaked interval outlives the page that started it.
  */
 export class AppCore extends EventEmitter {
   readonly logger: Logger
@@ -59,7 +58,7 @@ export class AppCore extends EventEmitter {
     const today = todayStr()
     const likeCounts: Record<string, number> = {}
     for (const [key, count] of this.likeCounts) {
-      // Only today's counts are persisted, matching the Python version.
+      // Only today's counts are kept; older rows are dropped on save.
       if (splitLikeKey(key)[0] === today) likeCounts[key] = count
     }
 

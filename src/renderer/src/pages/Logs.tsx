@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TerminalWindow, Trash, ArrowLineDown, FolderOpen } from '@phosphor-icons/react'
+import { TerminalWindow, Trash, FolderOpen } from '@phosphor-icons/react'
 import { useLogs } from '../lib/store'
 import { useToast } from '../lib/toast'
 import { Button } from '../components/ui/button'
@@ -72,20 +72,7 @@ export function LogsPage(): React.ReactElement {
       />
 
       <Panel className="flex h-[calc(100vh-190px)] flex-col overflow-hidden">
-        <PanelHeader
-          title="实时输出"
-          hint={logs.length ? `共 ${logs.length} 行` : undefined}
-          actions={
-            <Button
-              size="sm"
-              variant={follow ? 'secondary' : 'ghost'}
-              onClick={() => setFollow((f) => !f)}
-            >
-              <ArrowLineDown size={13} weight={follow ? 'bold' : 'regular'} />
-              {follow ? '跟随中' : '已暂停'}
-            </Button>
-          }
-        />
+        <PanelHeader title="实时输出" />
 
         {rendered.length === 0 ? (
           <EmptyState

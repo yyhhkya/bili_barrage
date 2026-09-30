@@ -176,6 +176,7 @@ export function UpdateBadge(): React.ReactElement {
                       onClick={() =>
                         void window.api.openManualDownload(
                           mirror.prefix,
+                          info?.tag ?? '',
                           info?.latest_version ?? ''
                         )
                       }

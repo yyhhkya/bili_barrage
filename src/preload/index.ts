@@ -103,8 +103,8 @@ const api = {
   testMirrors: () => invoke<MirrorResult[]>('api:testMirrors'),
   getMirrorResults: () => invoke<MirrorResult[]>('api:getMirrorResults'),
   getUpdateProgress: () => invoke<UpdateProgress>('api:getUpdateProgress'),
-  openManualDownload: (mirrorPrefix: string, version: string) =>
-    invoke<boolean>('api:openManualDownload', mirrorPrefix, version),
+  openManualDownload: (mirrorPrefix: string, tag: string, version: string) =>
+    invoke<boolean>('api:openManualDownload', mirrorPrefix, tag, version),
   openExternal: (url: string) => invoke<boolean>('api:openExternal', url),
 
   // misc

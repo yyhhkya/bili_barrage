@@ -251,8 +251,8 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
   handle('api:testMirrors', () => updater.testMirrors())
   handle('api:getMirrorResults', () => updater.getMirrorResults())
   handle('api:getUpdateProgress', () => updater.getProgress())
-  handle('api:openManualDownload', async (mirrorPrefix: string, version: string) => {
-    await shell.openExternal(buildManualDownloadUrl(mirrorPrefix, version))
+  handle('api:openManualDownload', async (mirrorPrefix: string, tag: string, version: string) => {
+    await shell.openExternal(buildManualDownloadUrl(mirrorPrefix, tag, version))
     return true
   })
   handle('api:openExternal', async (url: string) => {

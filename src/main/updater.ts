@@ -85,28 +85,23 @@ export class Updater extends EventEmitter {
   async check(): Promise<UpdateInfo> {
     const current = app.getVersion()
     try {
-      const res = await biliGet<{
-        tag_name?: string
-        html_url?: string
-        body?: string
-      }>(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-        headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': UA.short }
-      })
+      const res = await biliGet<GitHubRelease>(
+        `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+        { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': UA.short } }
+      )
 
-      if (res.status !== 200) return { has_update: false, current_version: current }
-
-      const tag = res.body?.tag_name ?? ''
-      const latest = tag.replace(/^v/, '')
-
-      if (!isNewer(latest, current)) return { has_update: false, current_version: current }
-
-      return {
-        has_update: true,
-        current_version: current,
-        latest_version: latest,
-        url: res.body?.html_url ?? '',
-        body: res.body?.body ?? ''
+      // A non-200 is not the same as "up to date", and the UI renders both as
+      // the absence of a badge. GitHub's unauthenticated API allows 60 requests
+      // per hour per IP, so a 403 here really does happen. Log it, otherwise a
+      // rate-limited check is indistinguishable from a genuinely current one.
+      if (res.status !== 200) {
+        this.logger.log(
+          `检查更新失败: HTTP ${res.status}` +
+            (res.status === 403 ? '（GitHub API 限流，未认证请求每小时 60 次）' : '')
+        )
       }
+
+      return parseRelease(current, res.status, res.body)
     } catch (err) {
       this.logger.log(`检查更新失败: ${err instanceof Error ? err.message : String(err)}`)
       return { has_update: false, current_version: current }
@@ -198,8 +193,63 @@ export function isNewer(candidate: string, current: string): boolean {
   return a.length > b.length
 }
 
-/** Manual download fallback: hand the (optionally mirror-prefixed) URL to the browser. */
-export function buildManualDownloadUrl(mirrorPrefix: string, version: string): string {
+/** The subset of GitHub's release payload this app reads. */
+export interface GitHubRelease {
+  tag_name?: string
+  html_url?: string
+  body?: string
+}
+
+/**
+ * Turn a GitHub `releases/latest` response into an `UpdateInfo`.
+ *
+ * Split out of `Updater.check()` so it can be exercised without the network.
+ * That matters here: the unauthenticated GitHub API allows 60 requests per hour
+ * per IP, so an end-to-end check is not something a test suite can rely on, and
+ * the tag handling in this function is exactly the part that was wrong before.
+ *
+ * `tag` is returned exactly as GitHub reports it. This repo's tags are bare
+ * (`2.4.1`), but `v2.4.1` is the more common convention and nothing enforces
+ * one, so callers must never reconstruct it from the version number.
+ */
+export function parseRelease(
+  currentVersion: string,
+  status: number,
+  body: GitHubRelease | undefined
+): UpdateInfo {
+  const noUpdate: UpdateInfo = { has_update: false, current_version: currentVersion }
+  if (status !== 200) return noUpdate
+
+  const tag = body?.tag_name ?? ''
+  if (!tag) return noUpdate
+
+  const latest = tag.replace(/^v/, '')
+  if (!isNewer(latest, currentVersion)) return noUpdate
+
+  return {
+    has_update: true,
+    current_version: currentVersion,
+    latest_version: latest,
+    tag,
+    url: body?.html_url ?? '',
+    body: body?.body ?? ''
+  }
+}
+
+/**
+ * Build a direct asset URL for the manual-download path.
+ *
+ * `tag` is the release tag as GitHub reports it, which is used verbatim. An
+ * earlier version of this reconstructed the URL as `/download/v${version}/`,
+ * which 404s against this repo because its tags are bare (`2.4.1`, not
+ * `v2.4.1`). The asset filename carries the plain version regardless of how
+ * the tag is spelled, so the two are separate arguments.
+ */
+export function buildManualDownloadUrl(
+  mirrorPrefix: string,
+  tag: string,
+  version: string
+): string {
   const asset = `bili-barrage-Setup-${version}.exe`
-  return `${mirrorPrefix}https://github.com/${GITHUB_REPO}/releases/download/v${version}/${asset}`
+  return `${mirrorPrefix}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${asset}`
 }

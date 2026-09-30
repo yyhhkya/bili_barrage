@@ -41,6 +41,42 @@ npm run build:win    # 产出 dist/bili-barrage-Setup-<version>.exe
 
 发版时这三个都要上传到 GitHub Release 的对应 tag。
 
+## 发版
+
+```bash
+npm version patch      # 3.0.0 -> 3.0.1，改的是 package.json 的 version
+npm run build:win
+```
+
+然后建一个 GitHub Release，tag 用 `3.0.1`，把 `dist/` 里三个文件都传上去。
+
+**tag 不要加 `v`。** 本仓库的历史 tag 都是裸的（`2.4.1`、`2.4.0`…），而检查更新时会把开头
+的 `v` 剥掉再比对版本，所以两种写法都能识别；但手动下载链接是直接用 tag 拼的，
+`.../releases/download/v2.4.1/...` 在裸 tag 上会 404。代码现在从 GitHub 响应里原样取 tag
+（`parseRelease` 的 `tag` 字段），不再猜前缀——前提是 tag 和下载链接用同一个。
+
+三个地方要对齐：
+
+| 位置 | 值 | 谁读 |
+|---|---|---|
+| `package.json` 的 `version` | `3.0.1` | `app.getVersion()`，比较的基准 |
+| Git tag | `3.0.1` | 检查更新读 `releases/latest` 的 `tag_name` |
+| `latest.yml` 的 `version` | `3.0.1` | electron-updater 决定下不下载（自动生成，前提是第一个改对了） |
+
+**Release 不能勾 pre-release，也不能存草稿** —— `/releases/latest` 会跳过这两类。
+
+不想手动传文件的话，带 token 让 electron-builder 直接发：
+
+```bash
+npx electron-builder --win --config electron-builder.yml --publish always
+```
+
+（需要 `GH_TOKEN` 环境变量。默认加 `--publish never` 以免误传。）
+
+> 注意：检查更新走 GitHub 的未认证 API，**每小时每 IP 限 60 次**。超限会返回 403，
+> 而 403 在界面上和"已是最新"看起来一样（都是不显示角标）。日志里会记一行
+> `检查更新失败: HTTP 403`，排查时先看那里。
+
 ## 自动更新
 
 走 `electron-updater` + GitHub provider：启动时查 `latest.yml`，比较版本，就地下载，退出时安装。

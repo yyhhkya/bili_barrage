@@ -60,6 +60,15 @@ export interface UpdateInfo {
   has_update: boolean
   current_version: string
   latest_version?: string
+  /**
+   * The release tag exactly as GitHub reports it, `v` prefix or not.
+   *
+   * Tags in this repo are bare (`2.4.1`), but GitHub projects commonly use
+   * `v2.4.1`, and nothing guarantees which. Download URLs are built from this
+   * value rather than reconstructed from `latest_version`, because
+   * reconstructing means guessing the prefix and guessing wrong gives a 404.
+   */
+  tag?: string
   url?: string
   body?: string
 }

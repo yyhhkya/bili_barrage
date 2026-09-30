@@ -4,6 +4,7 @@ import type { MirrorResult, UpdateInfo, UpdateProgress } from '@shared/types'
 import { useToast } from '../../lib/toast'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent } from '../ui/dialog'
+import { ReleaseNotes } from './ReleaseNotes'
 
 /**
  * Version badge plus the update dialog.
@@ -122,14 +123,42 @@ export function UpdateBadge(): React.ReactElement {
               </p>
             </div>
 
-            {info?.body ? (
-              <div>
-                <p className="mb-1.5 text-[12.5px] font-medium text-ink-2">更新内容</p>
-                <div className="max-h-52 overflow-y-auto rounded-panel border border-line bg-subtle p-3 text-[12.5px] leading-relaxed whitespace-pre-wrap text-ink-2">
-                  {info.body}
+            {/*
+              Release notes are Markdown, so they are rendered rather than
+              dumped as text; raw `##` and `**` in the dialog was the whole
+              problem this solves. Scrolls past ~14rem so a long changelog
+              cannot push the buttons off screen.
+            */}
+            <div>
+              <p className="mb-1.5 text-[12.5px] font-medium text-ink-2">更新内容</p>
+              {info?.body?.trim() ? (
+                <div className="max-h-56 overflow-y-auto rounded-panel border border-line bg-surface px-3.5 py-3 text-[12.5px] text-ink-2">
+                  <ReleaseNotes markdown={info.body} />
                 </div>
-              </div>
-            ) : null}
+              ) : (
+                // A release with no body is common (GitHub only fills it in if
+                // the author does). Saying so beats silently dropping the
+                // section, which reads like the dialog is broken.
+                <div className="rounded-panel border border-dashed border-line bg-surface px-3.5 py-3 text-[12.5px] text-ink-3">
+                  本次发布没有填写更新说明。
+                  {info?.url ? (
+                    <>
+                      {' '}
+                      <a
+                        href={info.url}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          void window.api.openExternal(info.url ?? '')
+                        }}
+                        className="text-accent-ink underline underline-offset-2 hover:text-ink"
+                      >
+                        在 GitHub 上查看
+                      </a>
+                    </>
+                  ) : null}
+                </div>
+              )}
+            </div>
 
             {progress.status !== 'idle' ? (
               <div>

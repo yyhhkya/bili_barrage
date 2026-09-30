@@ -1,0 +1,209 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * Warm cream + golden + warm-brown palette, sampled from the reference art.
+ * One accent family (golden), warm brown neutrals throughout. No cool greys.
+ *
+ * Contrast rule that shapes this whole file: golden #F5C542 against white is
+ * 1.62:1, so white text on gold is never allowed. Gold fills carry DARK BROWN
+ * text (#4A3728), which measures 6.93:1. That is also the right answer
+ * aesthetically here: soft chunky buttons with cocoa text, not white-on-gold.
+ * Every pair below was measured; all clear WCAG AA (4.5:1).
+ */
+@theme {
+  /* Surfaces */
+  --color-app: #fffbf2; /* warm cream page */
+  --color-surface: #ffffff;
+  --color-subtle: #fdf4e3; /* golden wash for headers, rows, wells */
+  --color-gold-wash: #fff8e1;
+  --color-line: #f0e4cc; /* warm hairline */
+  --color-line-strong: #e3d3b4;
+
+  /* Text. Warm brown, never pure black. Ratios vs #FFFFFF:
+   *   ink    #4A3728  11.2:1
+   *   ink-2  #6B5A45   6.6:1
+   *   ink-3  #7D6B54   5.1:1  (also clears on the tinted wells, 4.69:1)
+   */
+  --color-ink: #4a3728;
+  --color-ink-2: #6b5a45;
+  --color-ink-3: #7d6b54;
+
+  /* Golden accent. --color-accent is the fill; --color-accent-ink is the
+   * readable version for text/icons/dots on light backgrounds (4.8:1). */
+  --color-accent: #f5c542;
+  --color-accent-hover: #ffd966;
+  --color-accent-deep: #efb93a;
+  --color-accent-ink: #946200;
+  --color-accent-wash: #fff8e1;
+
+  /* Semantic, warm-shifted so they sit inside the palette rather than beside it. */
+  --color-ok: #3f7d3a;
+  --color-ok-wash: #f0f9ee;
+  --color-warn: #9c5f0a;
+  --color-warn-wash: #fdf3e2;
+  --color-danger: #c0392b;
+  --color-danger-wash: #fdf0ee;
+  --color-info: #3a6ea5;
+  --color-info-wash: #eef4fb;
+
+  /*
+   * Type.
+   *
+   * ZCOOL KuaiLe (站酷快乐体) carries the whole UI: it is a rounded, playful
+   * CJK face with its own Latin glyphs, so Chinese and Latin set in the same
+   * voice instead of a cute Chinese face next to a neutral Latin one. SIL OFL,
+   * so it ships fine. It has a single weight, which is why hierarchy below is
+   * carried by size and colour rather than by weight.
+   *
+   * Geist Mono stays for anything the user reads character by character:
+   * room ids, access keys, counts, timestamps, log output. A rounded display
+   * face actively hurts there, because tabular alignment is the whole point.
+   *
+   * The system UI font is last in the stack for glyphs ZCOOL does not cover
+   * (rare punctuation, some rare characters).
+   */
+  --font-sans: 'ZCOOL KuaiLe', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+  --font-display: 'ZCOOL KuaiLe', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Cascadia Mono', Consolas, monospace;
+
+  /* Soft, generous radii. One rule, applied everywhere:
+   *   compact 6px  - checkboxes and sub-24px controls
+   *   control 12px - buttons, inputs, selects, list rows
+   *   panel   18px - cards, panels, tables
+   *   overlay 22px - dialogs, popovers
+   *   full         - badges
+   */
+  --radius-compact: 6px;
+  --radius-control: 12px;
+  --radius-panel: 18px;
+  --radius-overlay: 22px;
+
+  /* Warm-tinted shadows, never neutral black. */
+  --shadow-panel: 0 1px 2px rgb(122 99 80 / 0.06), 0 2px 8px rgb(122 99 80 / 0.05);
+  --shadow-overlay: 0 12px 32px rgb(122 99 80 / 0.14), 0 3px 10px rgb(122 99 80 / 0.07);
+  --shadow-gold: 0 2px 0 #d9a92e, 0 3px 10px rgb(217 169 46 / 0.28);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-app);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* A rounded face has a smaller x-height than the neutral UI font it
+     * replaces, so the same nominal size reads smaller. 14px keeps the CJK
+     * body text at roughly the old apparent size. */
+    font-size: 14px;
+    line-height: 1.6;
+    /*
+     * ZCOOL KuaiLe ships a single weight. Any request above 400 would be
+     * synthesised by smearing the outline, which turns CJK glyphs to mush.
+     * Disabling synthesis makes every weight resolve to the one real face, so
+     * the `font-medium` classes scattered through the UI stay meaningful as
+     * intent without costing legibility. Hierarchy is carried by size and
+     * colour instead.
+     */
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    /* App chrome is not a document; selection stays for content only. */
+    user-select: none;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #cfbb95;
+    background-clip: content-box;
+  }
+}
+
+/*
+ * MOTION_INTENSITY stays low (3): hover/active affordances and state
+ * transitions only. The "cute" reads through colour, roundness and the chunky
+ * primary button, not through animation. All of it collapses under
+ * prefers-reduced-motion.
+ */
+@layer utilities {
+  .press {
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease,
+      transform 90ms ease;
+  }
+  .press:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  /* Chunky 3D-ish primary: gold face with a darker gold lip underneath, so it
+   * reads as a soft physical key rather than a flat rectangle. */
+  .btn-gold {
+    box-shadow:
+      0 2px 0 var(--color-accent-deep),
+      inset 0 1px 0 rgb(255 255 255 / 0.5);
+  }
+  .btn-gold:hover:not(:disabled) {
+    box-shadow:
+      0 2px 0 var(--color-accent-deep),
+      inset 0 1px 0 rgb(255 255 255 / 0.6);
+  }
+  .btn-gold:active:not(:disabled) {
+    box-shadow:
+      0 0 0 var(--color-accent-deep),
+      inset 0 1px 0 rgb(255 255 255 / 0.35);
+    transform: translateY(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

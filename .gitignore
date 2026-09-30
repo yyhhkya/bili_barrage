@@ -13,6 +13,10 @@ dist/
 logs/
 *.log
 
+# Network captures (DevTools HAR exports). These record full request and
+# response headers, so they routinely carry access_key values and cookies.
+*.har
+
 # IDE
 .vscode/
 .idea/
@@ -26,4 +30,8 @@ AGENTS.md
 
 # Project specific
 help.md
-config.json
+
+# Credentials. `config.json` holds Bilibili access_keys, and the exact-name
+# rule let a hand-made copy ("config copy.json") sit untracked-but-committable.
+# Match the whole family instead.
+config*.json

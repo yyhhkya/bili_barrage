@@ -1,0 +1,37 @@
+appId: com.yyhhkya.bili-barrage
+# ASCII on purpose: productName feeds the userData path (%APPDATA%\bili-barrage)
+# and the artifact filename / download URL. The Chinese name is exposed via
+# shortcutName below, which is what the user actually sees.
+productName: bili-barrage
+copyright: Copyright (c) 2026 yyhhkya
+
+directories:
+  buildResources: resources
+  output: dist
+
+files:
+  - out/**/*
+  - resources/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-Setup-${version}.${ext}
+  icon: resources/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: B站弹幕助手
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: yyhhkya
+  repo: bili_barrage
+  releaseType: release

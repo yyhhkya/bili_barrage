@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!--
+    App mark: a danmaku speech bubble on a warm gold tile.
+
+    Design constraints that shaped this:
+    - must read at 16px in the Windows taskbar, so the silhouette is one bold
+      shape with three dots, not an illustration
+    - must read at 256px in the installer, so it carries a little detail
+      (gradient, inner highlight, sparkle) that the small sizes can lose
+    - must survive being scaled down: no strokes thinner than 8px at 256,
+      because anything finer disappears into mush at 16
+  -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFDE79"/>
+      <stop offset="1" stop-color="#EFB62E"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFDF7"/>
+      <stop offset="1" stop-color="#FFF4DC"/>
+    </linearGradient>
+    <!--
+      Gloss. An elliptical gradient rather than a shaped overlay: a path with
+      its own corner radius reads as a second tile edge laid over the first.
+    -->
+    <radialGradient id="gloss" cx="0.5" cy="0.08" r="0.72">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#8A5A00" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#gloss)"/>
+
+  <!-- Speech bubble -->
+  <g filter="url(#soft)">
+    <path d="M128 54c-40.3 0-73 25.6-73 57.2 0 18.4 11.2 34.8 28.7 45.4-1.4 12.6-6.4 24.2-14.6 33.6-1.9 2.2.4 5.5 3.1 4.5 18.6-6.7 32.6-16.3 41.6-24.9a92 92 0 0 0 14.2 1.1c40.3 0 73-25.6 73-57.2S168.3 54 128 54z"
+          fill="url(#bubble)"/>
+  </g>
+
+  <!-- Three danmaku dots. Deep gold so they stay legible on cream. -->
+  <circle cx="92"  cy="111" r="13" fill="#C8871A"/>
+  <circle cx="128" cy="111" r="13" fill="#C8871A"/>
+  <circle cx="164" cy="111" r="13" fill="#C8871A"/>
+
+  <!-- Sparkle: the "cute" note. Small enough to vanish at 16px without harm. -->
+  <path d="M199 40c2.6 8.6 5.4 11.4 14 14-8.6 2.6-11.4 5.4-14 14-2.6-8.6-5.4-11.4-14-14 8.6-2.6 11.4-5.4 14-14z"
+        fill="#FFFDF7" opacity="0.95"/>
+</svg>

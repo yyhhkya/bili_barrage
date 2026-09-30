@@ -1,53 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <!--
-    App mark: a danmaku speech bubble on a warm gold tile.
+    App mark: the character 弹 (danmaku) on a gold tile.
 
     Design constraints that shaped this:
-    - must read at 16px in the Windows taskbar, so the silhouette is one bold
-      shape with three dots, not an illustration
-    - must read at 256px in the installer, so it carries a little detail
-      (gradient, inner highlight, sparkle) that the small sizes can lose
-    - must survive being scaled down: no strokes thinner than 8px at 256,
-      because anything finer disappears into mush at 16
+    - the glyph is the app's own face: it is ZCOOL KuaiLe, the font the whole
+      UI is set in, so the icon and the window read as the same product
+    - one shape, one colour pair, no effects. Gradients on the glyph, gloss,
+      drop shadows and a sparkle all competed for the same 256px and none of
+      them survived the trip down to 16px
+    - the tile stays a saturated gold rather than a pale cream, because a pale
+      tile disappears against a white Explorer background. Gold separates from
+      both light and dark desktops
+    - cream on the ORIGINAL light gradient was the old icon's real defect: the
+      top of 弹 landed on #FFDE79 and dissolved into it. The tile is deepened
+      to #F7C948 so every part of the glyph clears it
+
+    The glyph is an outline, not live <text>: rasterising at build time must not
+    depend on a font being installed. Extracted from
+    @fontsource/zcool-kuaile/files/zcool-kuaile-113-400-normal.woff (U+5F39),
+    normalised to a 150px box centred on the 256 tile. To redo it after a font
+    change, parse that subset with opentype.js and rescale glyph.getPath(0, 0, 1000)
+    by 150 / max(bbox width, bbox height) about the tile centre.
   -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFDE79"/>
-      <stop offset="1" stop-color="#EFB62E"/>
+      <stop offset="0" stop-color="#F7C948"/>
+      <stop offset="1" stop-color="#E3A81C"/>
     </linearGradient>
-    <linearGradient id="bubble" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFDF7"/>
-      <stop offset="1" stop-color="#FFF4DC"/>
-    </linearGradient>
-    <!--
-      Gloss. An elliptical gradient rather than a shaped overlay: a path with
-      its own corner radius reads as a second tile edge laid over the first.
-    -->
-    <radialGradient id="gloss" cx="0.5" cy="0.08" r="0.72">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#8A5A00" flood-opacity="0.22"/>
-    </filter>
   </defs>
 
-  <!-- Tile -->
   <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
-  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#gloss)"/>
 
-  <!-- Speech bubble -->
-  <g filter="url(#soft)">
-    <path d="M128 54c-40.3 0-73 25.6-73 57.2 0 18.4 11.2 34.8 28.7 45.4-1.4 12.6-6.4 24.2-14.6 33.6-1.9 2.2.4 5.5 3.1 4.5 18.6-6.7 32.6-16.3 41.6-24.9a92 92 0 0 0 14.2 1.1c40.3 0 73-25.6 73-57.2S168.3 54 128 54z"
-          fill="url(#bubble)"/>
-  </g>
-
-  <!-- Three danmaku dots. Deep gold so they stay legible on cream. -->
-  <circle cx="92"  cy="111" r="13" fill="#C8871A"/>
-  <circle cx="128" cy="111" r="13" fill="#C8871A"/>
-  <circle cx="164" cy="111" r="13" fill="#C8871A"/>
-
-  <!-- Sparkle: the "cute" note. Small enough to vanish at 16px without harm. -->
-  <path d="M199 40c2.6 8.6 5.4 11.4 14 14-8.6 2.6-11.4 5.4-14 14-2.6-8.6-5.4-11.4-14-14 8.6-2.6 11.4-5.4 14-14z"
-        fill="#FFFDF7" opacity="0.95"/>
+  <path fill="#FFFDF7" d="M197.6 149.17 L189.41 156.83 L161.36 156.66 L161.01 170.6 L203 173.56 L201.78 189.93 L160.67 186.97 L160.32 201.43 L144.11 201.08 L144.46 185.75 L109.27 183.14 L110.32 166.94 L144.81 169.38 L145.16 156.66 L123.38 156.48 L115.37 148.12 L115.37 129.66 L110.14 129.83 L109.45 113.45 L115.37 113.28 L115.37 85.58 L124.08 77.39 L129.83 77.74 L124.95 69.72 L139.06 61.01 L150.04 79.13 L159.97 79.66 L180 54.57 L192.9 64.67 L179.83 81.05 L193.94 81.92 L201.61 90.63 L197.6 149.17 M99.86 184.53 L64.85 201.26 L57.53 186.62 L88.37 171.82 L88.37 155.61 L62.23 159.1 L53 150.39 L55.79 105.61 L65.02 98.12 L89.59 100.74 L92.37 77.74 L60.14 78.26 L59.97 61.89 L101.78 61.19 L110.14 70.6 L104.92 110.84 L95.68 117.81 L71.82 115.2 L70.07 141.33 L95.51 137.84 L104.92 146.21 L104.57 177.04 L99.86 184.53 M131.57 94.29 L131.57 112.58 L146.21 112.06 L146.55 95.33 L131.57 94.29 M174.78 127.22 L162.23 127.74 L161.89 140.28 L181.75 140.46 L184.71 97.77 L163.1 96.38 L162.58 111.36 L174.08 110.84 L174.78 127.22 M131.57 128.96 L131.57 140.11 L145.51 140.28 L145.68 128.44 L131.57 128.96"/>
 </svg>

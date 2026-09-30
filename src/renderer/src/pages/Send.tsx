@@ -122,7 +122,7 @@ export function SendPage(): React.ReactElement {
             <Input
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
-              placeholder="例如：21452505"
+              placeholder="例如：30866874"
               inputMode="numeric"
             />
           </Field>

@@ -1,67 +1,28 @@
 import type { ReactNode } from 'react'
+import Markdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 /**
- * Minimal Markdown renderer for GitHub release notes.
+ * Renders GitHub release notes as GitHub-Flavored Markdown.
  *
- * Why hand-rolled rather than `marked` + a sanitiser:
- * - Release notes come from a remote source. Rendering them as HTML means an
- *   injection surface and a sanitiser dependency to close it. Emitting React
- *   elements instead makes that impossible by construction, and the strict CSP
- *   (`script-src 'self'`) stays intact.
- * - GitHub's auto-generated notes only use a handful of constructs: `##`
- *   headings, `*` bullets, `**bold**`, links, and inline code. Supporting the
- *   full CommonMark spec would be code nobody asked for.
+ * `react-markdown` emits React elements rather than HTML, so there is no
+ * `dangerouslySetInnerHTML` and no injection surface, and the strict CSP
+ * (`script-src 'self'`) stays intact — the same safety the previous
+ * hand-rolled renderer had, but with full GFM (tables, task lists, strike-
+ * through, nested lists, autolinks) so the dialog matches github.com.
  *
- * Anything unrecognised is rendered as plain text, which is the safe default.
+ * Links and images are routed to the system browser; the CSP blocks remote
+ * `img-src`, so an image is shown as a link to its source rather than a broken
+ * `<img>`.
  */
-
-type Inline =
-  | { kind: 'text'; value: string }
-  | { kind: 'code'; value: string }
-  | { kind: 'bold'; value: string }
-  | { kind: 'italic'; value: string }
-  | { kind: 'link'; value: string; href: string }
-
-/** Splits a line into inline tokens. Code spans win, so `**` inside them is literal. */
-function parseInline(input: string): Inline[] {
-  const out: Inline[] = []
-  // Order matters: code, then links, then emphasis, then bare URLs.
-  const pattern =
-    /(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(https?:\/\/[^\s<>()]+)/g
-
-  let last = 0
-  let m: RegExpExecArray | null
-  while ((m = pattern.exec(input)) !== null) {
-    if (m.index > last) out.push({ kind: 'text', value: input.slice(last, m.index) })
-    const tok = m[0]
-    if (tok.startsWith('`')) {
-      out.push({ kind: 'code', value: tok.slice(1, -1) })
-    } else if (tok.startsWith('[')) {
-      const split = tok.indexOf('](')
-      out.push({ kind: 'link', value: tok.slice(1, split), href: tok.slice(split + 1, -1) })
-    } else if (tok.startsWith('**') || tok.startsWith('__')) {
-      out.push({ kind: 'bold', value: tok.slice(2, -2) })
-    } else if (tok.startsWith('*')) {
-      out.push({ kind: 'italic', value: tok.slice(1, -1) })
-    } else {
-      out.push({ kind: 'link', value: tok, href: tok })
-    }
-    last = m.index + tok.length
-  }
-  if (last < input.length) out.push({ kind: 'text', value: input.slice(last) })
-  return out
-}
-
-function Link({ href, children }: { href: string; children: ReactNode }): React.ReactElement {
-  // A plain <a href> would ask the webview to navigate. Sending it to the
-  // system browser is both what the user expects and what the main process's
-  // navigation guard would end up doing anyway.
+function Link({ href, children }: { href?: string; children: ReactNode }): React.ReactElement {
+  const target = href ?? ''
   return (
     <a
-      href={href}
+      href={target}
       onClick={(e) => {
         e.preventDefault()
-        void window.api.openExternal(href)
+        if (target) void window.api.openExternal(target)
       }}
       className="text-accent-ink underline underline-offset-2 hover:text-ink"
     >
@@ -70,164 +31,69 @@ function Link({ href, children }: { href: string; children: ReactNode }): React.
   )
 }
 
-function renderInline(tokens: Inline[], keyPrefix: string): ReactNode[] {
-  return tokens.map((tk, i) => {
-    const key = `${keyPrefix}-${i}`
-    switch (tk.kind) {
-      case 'code':
-        return (
-          <code
-            key={key}
-            className="rounded-compact bg-subtle px-1 py-0.5 font-mono text-[11.5px] text-ink"
-          >
-            {tk.value}
-          </code>
-        )
-      case 'bold':
-        return (
-          <strong key={key} className="font-medium text-ink">
-            {tk.value}
-          </strong>
-        )
-      case 'italic':
-        return (
-          <em key={key} className="italic">
-            {tk.value}
-          </em>
-        )
-      case 'link':
-        return (
-          <Link key={key} href={tk.href}>
-            {tk.value}
-          </Link>
-        )
-      default:
-        return <span key={key}>{tk.value}</span>
-    }
-  })
+const COMPONENTS: Components = {
+  a: ({ href, children }) => <Link href={href}>{children}</Link>,
+  img: ({ src, alt }) => <Link href={typeof src === 'string' ? src : ''}>{alt || '图片'}</Link>,
+  h1: ({ children }) => <p className="text-[13px] font-medium text-ink">{children}</p>,
+  h2: ({ children }) => <p className="text-[13px] font-medium text-ink">{children}</p>,
+  h3: ({ children }) => <p className="text-[12.5px] font-medium text-ink-2">{children}</p>,
+  h4: ({ children }) => <p className="text-[12.5px] font-medium text-ink-2">{children}</p>,
+  h5: ({ children }) => <p className="text-[12.5px] font-medium text-ink-2">{children}</p>,
+  h6: ({ children }) => <p className="text-[12.5px] font-medium text-ink-2">{children}</p>,
+  p: ({ children }) => <p className="leading-relaxed">{children}</p>,
+  strong: ({ children }) => <strong className="font-medium text-ink">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  del: ({ children }) => <del className="line-through">{children}</del>,
+  ul: ({ children }) => (
+    <ul className="flex list-disc flex-col gap-1 pl-4 marker:text-line-strong">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="flex list-decimal flex-col gap-1 pl-4 marker:text-line-strong">{children}</ol>
+  ),
+  li: ({ children }) => <li className="pl-0.5">{children}</li>,
+  input: ({ type, checked }) =>
+    type === 'checkbox' ? (
+      <input
+        type="checkbox"
+        checked={checked}
+        readOnly
+        className="mr-1.5 translate-y-px accent-accent"
+      />
+    ) : null,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-line-strong pl-2.5 text-ink-2">{children}</blockquote>
+  ),
+  hr: () => <hr className="border-line" />,
+  code: ({ children }) => (
+    <code className="rounded-compact bg-subtle px-1 py-0.5 font-mono text-[11.5px] text-ink">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="overflow-x-auto rounded-control border border-line bg-subtle p-2.5 font-mono text-[11.5px] leading-relaxed text-ink [&_code]:bg-transparent [&_code]:p-0">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left text-[12px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border border-line bg-subtle px-2 py-1 font-medium text-ink">{children}</th>
+  ),
+  td: ({ children }) => <td className="border border-line px-2 py-1 align-top">{children}</td>
 }
 
 export function ReleaseNotes({ markdown }: { markdown: string }): React.ReactElement | null {
   const text = markdown.trim()
   if (!text) return null
 
-  const lines = text.split(/\r?\n/)
-  const blocks: ReactNode[] = []
-  let i = 0
-  let key = 0
-
-  while (i < lines.length) {
-    const line = lines[i]
-
-    // Fenced code block
-    if (/^\s*```/.test(line)) {
-      const buf: string[] = []
-      i++
-      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++])
-      i++ // closing fence
-      blocks.push(
-        <pre
-          key={key++}
-          className="overflow-x-auto rounded-control border border-line bg-subtle p-2.5 font-mono text-[11.5px] leading-relaxed text-ink"
-        >
-          {buf.join('\n')}
-        </pre>
-      )
-      continue
-    }
-
-    // Blank line
-    if (!line.trim()) {
-      i++
-      continue
-    }
-
-    // Horizontal rule
-    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
-      blocks.push(<hr key={key++} className="border-line" />)
-      i++
-      continue
-    }
-
-    // Heading
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line)
-    if (heading) {
-      const level = heading[1].length
-      blocks.push(
-        <p
-          key={key++}
-          className={
-            level <= 2
-              ? 'text-[13px] font-medium text-ink'
-              : 'text-[12.5px] font-medium text-ink-2'
-          }
-        >
-          {renderInline(parseInline(heading[2]), `h${key}`)}
-        </p>
-      )
-      i++
-      continue
-    }
-
-    // List (consecutive items form one block)
-    if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
-      const items: ReactNode[] = []
-      while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
-        const content = lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, '')
-        // GitHub prefixes auto-generated entries with "- "; a nested marker
-        // can appear after a task-list checkbox.
-        items.push(
-          <li key={items.length} className="pl-0.5">
-            {renderInline(parseInline(content.replace(/^\[[ x]\]\s*/, '')), `li${key}-${items.length}`)}
-          </li>
-        )
-        i++
-      }
-      blocks.push(
-        <ul key={key++} className="flex list-disc flex-col gap-1 pl-4 marker:text-line-strong">
-          {items}
-        </ul>
-      )
-      continue
-    }
-
-    // Blockquote
-    if (/^\s*>\s?/.test(line)) {
-      const buf: string[] = []
-      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
-        buf.push(lines[i].replace(/^\s*>\s?/, ''))
-        i++
-      }
-      blocks.push(
-        <blockquote
-          key={key++}
-          className="border-l-2 border-line-strong pl-2.5 text-ink-2"
-        >
-          {renderInline(parseInline(buf.join(' ')), `bq${key}`)}
-        </blockquote>
-      )
-      continue
-    }
-
-    // Paragraph: consume until a blank line or a line that starts another block
-    const para: string[] = [line]
-    i++
-    while (
-      i < lines.length &&
-      lines[i].trim() &&
-      !/^\s*([-*+]|\d+\.)\s+/.test(lines[i]) &&
-      !/^#{1,6}\s/.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
-      !/^\s*>\s?/.test(lines[i])
-    ) {
-      para.push(lines[i++])
-    }
-    blocks.push(
-      <p key={key++} className="leading-relaxed">
-        {renderInline(parseInline(para.join(' ')), `p${key}`)}
-      </p>
-    )
-  }
-
-  return <div className="flex flex-col gap-2.5">{blocks}</div>
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+        {text}
+      </Markdown>
+    </div>
+  )
 }

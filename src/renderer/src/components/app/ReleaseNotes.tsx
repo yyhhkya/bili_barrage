@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 
 /**
  * Renders GitHub release notes as GitHub-Flavored Markdown.
@@ -14,6 +15,10 @@ import remarkGfm from 'remark-gfm'
  * Links and images are routed to the system browser; the CSP blocks remote
  * `img-src`, so an image is shown as a link to its source rather than a broken
  * `<img>`.
+ *
+ * `remark-breaks` is included so a single newline becomes a line break, which
+ * is how GitHub renders release notes — plain CommonMark would collapse it to
+ * a space and run two lines into one.
  */
 function Link({ href, children }: { href?: string; children: ReactNode }): React.ReactElement {
   const target = href ?? ''
@@ -91,7 +96,7 @@ export function ReleaseNotes({ markdown }: { markdown: string }): React.ReactEle
 
   return (
     <div className="flex flex-col gap-2.5">
-      <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+      <Markdown remarkPlugins={[remarkGfm, remarkBreaks]} components={COMPONENTS}>
         {text}
       </Markdown>
     </div>

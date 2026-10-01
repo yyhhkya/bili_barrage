@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Plus,
   QrCode,
@@ -43,6 +43,53 @@ export function AccountsPage(): React.ReactElement {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
+
+  // Edge auto-scroll while dragging. Native DnD fires `dragover` only on
+  // pointer movement, so a loop keeps scrolling while the cursor is held in the
+  // edge band; the speed ref is recomputed on each `dragover` and zeroed when
+  // the cursor leaves the band or the drag ends.
+  const scrollerRef = useRef<HTMLElement | null>(null)
+  const scrollSpeedRef = useRef(0)
+  const rafRef = useRef<number | null>(null)
+
+  function stopAutoScroll(): void {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    scrollSpeedRef.current = 0
+  }
+
+  function tickAutoScroll(): void {
+    const c = scrollerRef.current
+    if (!c || scrollSpeedRef.current === 0) {
+      rafRef.current = null
+      return
+    }
+    c.scrollTop += scrollSpeedRef.current
+    rafRef.current = requestAnimationFrame(tickAutoScroll)
+  }
+
+  function updateAutoScroll(clientY: number): void {
+    const c = scrollerRef.current
+    if (!c) return
+    const rect = c.getBoundingClientRect()
+    const EDGE = 56
+    const MAX = 16
+    let speed = 0
+    if (clientY < rect.top + EDGE) {
+      speed = -MAX * (1 - Math.max(0, clientY - rect.top) / EDGE)
+    } else if (clientY > rect.bottom - EDGE) {
+      speed = MAX * (1 - Math.max(0, rect.bottom - clientY) / EDGE)
+    }
+    scrollSpeedRef.current = speed
+    if (speed !== 0 && rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(tickAutoScroll)
+    }
+  }
+
+  // Stop the loop if the component unmounts mid-drag.
+  useEffect(() => stopAutoScroll, [])
 
   const isEdit = editing.index >= 0
 
@@ -117,16 +164,19 @@ export function AccountsPage(): React.ReactElement {
     e.dataTransfer.setData('text/plain', String(index))
     const row = rowRefs.current[index]
     if (row) e.dataTransfer.setDragImage(row, 12, 12)
+    scrollerRef.current = row?.closest<HTMLElement>('main') ?? null
   }
 
   function onDragOver(index: number, e: React.DragEvent<HTMLTableRowElement>): void {
     if (dragIndex === null) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
+    updateAutoScroll(e.clientY)
     if (index !== overIndex) setOverIndex(index)
   }
 
   function onDragEnd(): void {
+    stopAutoScroll()
     setDragIndex(null)
     setOverIndex(null)
   }

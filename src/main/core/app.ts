@@ -102,6 +102,28 @@ export class AppCore extends EventEmitter {
     this.emitState()
   }
 
+  /**
+   * Reorder accounts to match the given key order. Keys are the stable identity
+   * (tasks reference accounts by key, not position), so a reorder never breaks
+   * task bindings. Ignored unless `keys` is a pure permutation of the current
+   * accounts — a shape change means the caller is stale.
+   */
+  reorderAccounts(keys: readonly string[]): void {
+    const byKey = new Map(this.accounts.map((a) => [a.key, a]))
+    const next: Account[] = []
+    for (const k of keys) {
+      const a = byKey.get(k)
+      if (a) {
+        next.push(a)
+        byKey.delete(k)
+      }
+    }
+    if (next.length !== this.accounts.length) return
+    this.accounts = next
+    this.saveConfig()
+    this.emitState()
+  }
+
   accountByKey(key: string): Account | undefined {
     return this.accounts.find((a) => a.key === key)
   }

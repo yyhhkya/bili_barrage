@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TerminalWindow, Trash, FolderOpen } from '@phosphor-icons/react'
+import { TerminalWindow, FolderOpen } from '@phosphor-icons/react'
 import { useLogs } from '../lib/store'
 import { useToast } from '../lib/toast'
 import { Button } from '../components/ui/button'
@@ -22,7 +22,7 @@ const SEVERITY_CLASS = {
 } as const
 
 export function LogsPage(): React.ReactElement {
-  const { logs, clearLogs } = useLogs()
+  const { logs } = useLogs()
   const toast = useToast()
   const [follow, setFollow] = useState(true)
   const scroller = useRef<HTMLDivElement>(null)
@@ -58,16 +58,10 @@ export function LogsPage(): React.ReactElement {
         title="日志"
         description="滚动实时刷新。完整历史按天保存在日志目录，保留 7 天。"
         actions={
-          <>
-            <Button size="sm" onClick={() => void openLogFolder()}>
-              <FolderOpen size={14} />
-              打开日志目录
-            </Button>
-            <Button size="sm" onClick={clearLogs} disabled={!logs.length}>
-              <Trash size={14} />
-              清空
-            </Button>
-          </>
+          <Button size="sm" onClick={() => void openLogFolder()}>
+            <FolderOpen size={14} />
+            打开日志目录
+          </Button>
         }
       />
 

@@ -67,10 +67,6 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
   // ------------------------------------------------------------- state
   handle('api:getState', () => app.getState())
   handle('api:getLogHistory', () => app.logger.history())
-  handle('api:clearLogs', () => {
-    app.logger.clear()
-    return true
-  })
 
   // ---------------------------------------------------------- accounts
   handle('api:addAccount', (nickname: string, key: string) => {
@@ -83,6 +79,10 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
   })
   handle('api:deleteAccount', (index: number) => {
     app.deleteAccount(index)
+    return true
+  })
+  handle('api:reorderAccounts', (keys: string[]) => {
+    app.reorderAccounts(keys)
     return true
   })
   handle('api:getNickname', (accessKey: string) => fetchNickname(accessKey))

@@ -39,7 +39,6 @@ const api = {
   // state
   getState: () => invoke<AppState>('api:getState'),
   getLogHistory: () => invoke<string[]>('api:getLogHistory'),
-  clearLogs: () => invoke<boolean>('api:clearLogs'),
 
   // accounts
   addAccount: (nickname: string, key: string) =>
@@ -47,6 +46,7 @@ const api = {
   editAccount: (index: number, nickname: string, key: string) =>
     invoke<boolean>('api:editAccount', index, nickname, key),
   deleteAccount: (index: number) => invoke<boolean>('api:deleteAccount', index),
+  reorderAccounts: (keys: string[]) => invoke<boolean>('api:reorderAccounts', keys),
   getNickname: (accessKey: string) => invoke<string | null>('api:getNickname', accessKey),
 
   // QR login

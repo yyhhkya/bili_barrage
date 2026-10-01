@@ -15,7 +15,6 @@ interface StoreValue {
   watch: WatchEntry[]
   logs: string[]
   ready: boolean
-  clearLogs: () => void
 }
 
 const StoreContext = createContext<StoreValue | null>(null)
@@ -86,15 +85,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     }
   }, [scheduleFlush])
 
-  const clearLogs = useCallback(() => {
-    pending.current = []
-    setLogs([])
-    void window.api.clearLogs()
-  }, [])
-
   const value = useMemo<StoreValue>(
-    () => ({ state, watch, logs, ready, clearLogs }),
-    [state, watch, logs, ready, clearLogs]
+    () => ({ state, watch, logs, ready }),
+    [state, watch, logs, ready]
   )
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
@@ -115,7 +108,7 @@ export function useWatch(): WatchEntry[] {
   return useStore().watch
 }
 
-export function useLogs(): { logs: string[]; clearLogs: () => void } {
-  const { logs, clearLogs } = useStore()
-  return { logs, clearLogs }
+export function useLogs(): { logs: string[] } {
+  const { logs } = useStore()
+  return { logs }
 }

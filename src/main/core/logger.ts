@@ -111,8 +111,4 @@ export class Logger {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
-
-  clear(): void {
-    this.buffer.length = 0
-  }
 }

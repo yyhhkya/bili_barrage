@@ -5,6 +5,7 @@ import { useStore } from '../lib/store'
 import { useToast } from '../lib/toast'
 import { Button } from '../components/ui/button'
 import { Dialog, DialogContent } from '../components/ui/dialog'
+import { ConfirmDialog } from '../components/ui/confirm-dialog'
 import { Input, Textarea } from '../components/ui/input'
 import { Field, PageHeader, Panel, Table, Td, Th } from '../components/ui/panel'
 import { EmptyState, ErrorState, TableSkeleton } from '../components/ui/states'
@@ -33,6 +34,12 @@ export function TasksPage(): React.ReactElement {
   const toast = useToast()
 
   const [dialog, setDialog] = useState<{ open: boolean; index: number }>({ open: false, index: -1 })
+  const [confirm, setConfirm] = useState<{ open: boolean; task: Task | null; index: number }>({
+    open: false,
+    task: null,
+    index: -1
+  })
+  const [deleting, setDeleting] = useState(false)
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -111,11 +118,15 @@ export function TasksPage(): React.ReactElement {
   }
 
   async function remove(task: Task, index: number): Promise<void> {
+    setDeleting(true)
     try {
       await window.api.deleteTask(index)
       toast.success(`已删除任务「${task.room_remark || task.room_id}」`)
+      setConfirm({ open: false, task: null, index: -1 })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -226,7 +237,7 @@ export function TasksPage(): React.ReactElement {
                       size="sm"
                       variant="ghost"
                       className="text-danger hover:bg-danger-wash hover:text-danger"
-                      onClick={() => void remove(task, index)}
+                      onClick={() => setConfirm({ open: true, task, index })}
                     >
                       <Trash size={13} />
                       删除
@@ -309,6 +320,21 @@ export function TasksPage(): React.ReactElement {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirm.open}
+        onOpenChange={(open) => setConfirm((c) => ({ ...c, open }))}
+        title="删除任务"
+        description={
+          confirm.task
+            ? `确定删除任务「${confirm.task.room_remark || confirm.task.room_id}」？此操作不可撤销。`
+            : ''
+        }
+        confirmLabel="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => confirm.task && void remove(confirm.task, confirm.index)}
+      />
     </>
   )
 }

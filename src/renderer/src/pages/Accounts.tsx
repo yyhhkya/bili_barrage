@@ -1,10 +1,20 @@
-import { useState } from 'react'
-import { Plus, QrCode, UserCircle, PencilSimple, Trash, UploadSimple } from '@phosphor-icons/react'
+import { useRef, useState } from 'react'
+import {
+  Plus,
+  QrCode,
+  UserCircle,
+  PencilSimple,
+  Trash,
+  UploadSimple,
+  DotsSixVertical
+} from '@phosphor-icons/react'
 import type { Account } from '@shared/types'
 import { useStore } from '../lib/store'
 import { useToast } from '../lib/toast'
+import { cn } from '../lib/utils'
 import { Button } from '../components/ui/button'
 import { Dialog, DialogContent } from '../components/ui/dialog'
+import { ConfirmDialog } from '../components/ui/confirm-dialog'
 import { Field, PageHeader, Panel, Td, Th, Table } from '../components/ui/panel'
 import { Input, MonoInput } from '../components/ui/input'
 import { EmptyState, ErrorState, TableSkeleton } from '../components/ui/states'
@@ -15,12 +25,24 @@ export function AccountsPage(): React.ReactElement {
   const toast = useToast()
 
   const [editing, setEditing] = useState<{ open: boolean; index: number }>({ open: false, index: -1 })
+  const [confirm, setConfirm] = useState<{ open: boolean; index: number; nickname: string }>({
+    open: false,
+    index: -1,
+    nickname: ''
+  })
+  const [deleting, setDeleting] = useState(false)
   const [form, setForm] = useState<Account>({ nickname: '', key: '' })
   const [autoFilling, setAutoFilling] = useState(false)
   const [saving, setSaving] = useState(false)
   const [qrOpen, setQrOpen] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Drag-to-reorder. The dragged row and the row under the cursor; order is
+  // committed to the backend on drop, and the store push re-renders in place.
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
 
   const isEdit = editing.index >= 0
 
@@ -77,9 +99,47 @@ export function AccountsPage(): React.ReactElement {
   }
 
   async function remove(index: number, nickname: string): Promise<void> {
+    setDeleting(true)
     try {
       await window.api.deleteAccount(index)
       toast.success(`已删除 ${nickname || '该账号'}`)
+      setConfirm({ open: false, index: -1, nickname: '' })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  function onDragStart(index: number, e: React.DragEvent<HTMLSpanElement>): void {
+    setDragIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(index))
+    const row = rowRefs.current[index]
+    if (row) e.dataTransfer.setDragImage(row, 12, 12)
+  }
+
+  function onDragOver(index: number, e: React.DragEvent<HTMLTableRowElement>): void {
+    if (dragIndex === null) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (index !== overIndex) setOverIndex(index)
+  }
+
+  function onDragEnd(): void {
+    setDragIndex(null)
+    setOverIndex(null)
+  }
+
+  async function onDrop(to: number): Promise<void> {
+    const from = dragIndex
+    onDragEnd()
+    if (from === null || from === to) return
+    const next = [...state.accounts]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    try {
+      await window.api.reorderAccounts(next.map((a) => a.key))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     }
@@ -108,6 +168,10 @@ export function AccountsPage(): React.ReactElement {
         description="每个账号需要一条 B 站 access_key，用于发送弹幕、点赞和挂榜。"
         actions={
           <>
+            <Button onClick={() => void importLegacy()} disabled={importing}>
+              <UploadSimple size={15} />
+              {importing ? '导入中...' : '导入配置'}
+            </Button>
             <Button onClick={() => setQrOpen(true)}>
               <QrCode size={15} />
               扫码登录
@@ -145,22 +209,46 @@ export function AccountsPage(): React.ReactElement {
           />
         </Panel>
       ) : (
-        <>
-          <Table
-            head={
-              <tr>
-                <Th className="w-12 text-right">#</Th>
-                <Th>昵称</Th>
-                <Th>Access Key</Th>
-                <Th className="w-[132px] text-right">操作</Th>
-              </tr>
-            }
-          >
-            {state.accounts.map((account, index) => (
-              <tr key={account.key} className="hover:bg-subtle">
-                <Td className="text-right font-mono text-[12px] text-ink-3">
-                  {index + 1}
+        <Table
+          head={
+            <tr>
+              <Th className="w-8" />
+              <Th className="w-12 text-right">#</Th>
+              <Th>昵称</Th>
+              <Th>Access Key</Th>
+              <Th className="w-[132px] text-right">操作</Th>
+            </tr>
+          }
+        >
+          {state.accounts.map((account, index) => {
+            const isOver = overIndex === index && dragIndex !== null && dragIndex !== index
+            const isDragging = dragIndex === index
+            return (
+              <tr
+                key={account.key}
+                ref={(el) => {
+                  rowRefs.current[index] = el
+                }}
+                onDragOver={(e) => onDragOver(index, e)}
+                onDrop={() => void onDrop(index)}
+                className={cn(
+                  'hover:bg-subtle',
+                  isDragging && 'opacity-40',
+                  isOver && '[&>td]:border-t-2 [&>td]:border-t-accent'
+                )}
+              >
+                <Td className="text-center">
+                  <span
+                    draggable
+                    onDragStart={(e) => onDragStart(index, e)}
+                    onDragEnd={onDragEnd}
+                    aria-label="拖动排序"
+                    className="inline-flex cursor-grab text-ink-3 hover:text-ink-2 active:cursor-grabbing"
+                  >
+                    <DotsSixVertical size={16} />
+                  </span>
                 </Td>
+                <Td className="text-right font-mono text-[12px] text-ink-3">{index + 1}</Td>
                 <Td className="font-medium">
                   {account.nickname || <span className="text-ink-3">未命名</span>}
                 </Td>
@@ -178,7 +266,7 @@ export function AccountsPage(): React.ReactElement {
                       size="sm"
                       variant="ghost"
                       className="text-danger hover:bg-danger-wash hover:text-danger"
-                      onClick={() => void remove(index, account.nickname)}
+                      onClick={() => setConfirm({ open: true, index, nickname: account.nickname })}
                     >
                       <Trash size={14} />
                       删除
@@ -186,16 +274,9 @@ export function AccountsPage(): React.ReactElement {
                   </div>
                 </Td>
               </tr>
-            ))}
-          </Table>
-
-          <div className="mt-3 flex justify-end">
-            <Button size="sm" variant="ghost" onClick={() => void importLegacy()} disabled={importing}>
-              <UploadSimple size={14} />
-              {importing ? '导入中...' : '导入配置'}
-            </Button>
-          </div>
-        </>
+            )
+          })}
+        </Table>
       )}
 
       <Dialog
@@ -249,6 +330,17 @@ export function AccountsPage(): React.ReactElement {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirm.open}
+        onOpenChange={(open) => setConfirm((c) => ({ ...c, open }))}
+        title="删除账号"
+        description={`确定删除账号「${confirm.nickname || '未命名'}」？此操作不可撤销。`}
+        confirmLabel="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void remove(confirm.index, confirm.nickname)}
+      />
 
       <QrLoginDialog open={qrOpen} onOpenChange={setQrOpen} />
     </>

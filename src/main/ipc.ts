@@ -5,7 +5,7 @@ import type { IpcResult, PushEvents } from '../shared/types'
 import type { AppCore } from './core/app'
 import { EmoticonService } from './core/emoticons'
 import { QrLogin } from './core/qrlogin'
-import { Updater, buildManualDownloadUrl } from './updater'
+import { Updater } from './updater'
 import { fetchNickname } from './bili/endpoints'
 import { readLegacyConfig } from './core/config'
 
@@ -63,7 +63,6 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
   app.on('watch:changed', (w) => broadcast('watch:changed', w))
   app.on('log:line', (l) => broadcast('log:line', l))
   updater.on('progress', (p) => broadcast('update:progress', p))
-  updater.on('mirrors', (m) => broadcast('mirror:results', m))
 
   // ------------------------------------------------------------- state
   handle('api:getState', () => app.getState())
@@ -248,13 +247,7 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
     updater.quitAndInstall()
     return true
   })
-  handle('api:testMirrors', () => updater.testMirrors())
-  handle('api:getMirrorResults', () => updater.getMirrorResults())
   handle('api:getUpdateProgress', () => updater.getProgress())
-  handle('api:openManualDownload', async (mirrorPrefix: string, tag: string, version: string) => {
-    await shell.openExternal(buildManualDownloadUrl(mirrorPrefix, tag, version))
-    return true
-  })
   handle('api:openExternal', async (url: string) => {
     // Only allow https to keep a compromised renderer from launching arbitrary URLs.
     if (!/^https:\/\//i.test(url)) return false

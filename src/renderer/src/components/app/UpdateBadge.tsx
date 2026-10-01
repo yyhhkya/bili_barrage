@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ArrowCircleUp, ArrowSquareOut, CheckCircle, Download } from '@phosphor-icons/react'
-import type { MirrorResult, UpdateInfo, UpdateProgress } from '@shared/types'
+import type { UpdateInfo, UpdateProgress } from '@shared/types'
 import { useToast } from '../../lib/toast'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent } from '../ui/dialog'
@@ -9,10 +9,9 @@ import { ReleaseNotes } from './ReleaseNotes'
 /**
  * Version badge plus the update dialog.
  *
- * Mirrors are offered for the manual-download path only: electron-updater talks
- * to GitHub directly and cannot take a URL prefix. The automatic path hides the
- * download entirely, so the mirror picker is a fallback for users behind a
- * blocked connection.
+ * The update downloads and installs through electron-updater, which talks to
+ * GitHub directly. When that connection is blocked, "前往 GitHub" opens the
+ * release page in the system browser as the manual fallback.
  */
 export function UpdateBadge(): React.ReactElement {
   const toast = useToast()
@@ -23,8 +22,6 @@ export function UpdateBadge(): React.ReactElement {
     status: 'idle',
     message: ''
   })
-  const [mirrors, setMirrors] = useState<MirrorResult[]>([])
-  const [testing, setTesting] = useState(false)
 
   // One check per launch is enough; a background poll would only add noise.
   useEffect(() => {
@@ -52,17 +49,6 @@ export function UpdateBadge(): React.ReactElement {
       await window.api.downloadUpdate()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function testMirrors(): Promise<void> {
-    setTesting(true)
-    try {
-      setMirrors(await window.api.testMirrors())
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTesting(false)
     }
   }
 
@@ -181,48 +167,6 @@ export function UpdateBadge(): React.ReactElement {
                 </p>
               </div>
             ) : null}
-
-            <div className="border-t border-line pt-3.5">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[12.5px] font-medium text-ink-2">手动下载线路</p>
-                  <p className="text-[12px] text-ink-3">
-                    自动更新走 GitHub 直连。连不上时，先测速再选一条线路用浏览器下载。
-                  </p>
-                </div>
-                <Button size="sm" onClick={() => void testMirrors()} disabled={testing}>
-                  {testing ? '检测中...' : '测速'}
-                </Button>
-              </div>
-
-              {mirrors.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {mirrors.map((mirror) => (
-                    <Button
-                      key={mirror.prefix || 'direct'}
-                      size="sm"
-                      disabled={mirror.status === 'error'}
-                      onClick={() =>
-                        void window.api.openManualDownload(
-                          mirror.prefix,
-                          info?.tag ?? '',
-                          info?.latest_version ?? ''
-                        )
-                      }
-                    >
-                      {mirror.name}
-                      {mirror.status === 'ok' ? (
-                        <span className="font-mono text-[11px] text-ink-3">
-                          {mirror.latency}ms
-                        </span>
-                      ) : mirror.status === 'error' ? (
-                        <span className="text-[11px] text-ink-3">超时</span>
-                      ) : null}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -7,7 +7,6 @@ import type {
   IpcResult,
   LikeCountTotal,
   LoginPollResult,
-  MirrorResult,
   PushEvents,
   Task,
   UpdateInfo,
@@ -100,11 +99,7 @@ const api = {
   checkUpdate: () => invoke<UpdateInfo>('api:checkUpdate'),
   downloadUpdate: () => invoke<boolean>('api:downloadUpdate'),
   quitAndInstall: () => invoke<boolean>('api:quitAndInstall'),
-  testMirrors: () => invoke<MirrorResult[]>('api:testMirrors'),
-  getMirrorResults: () => invoke<MirrorResult[]>('api:getMirrorResults'),
   getUpdateProgress: () => invoke<UpdateProgress>('api:getUpdateProgress'),
-  openManualDownload: (mirrorPrefix: string, tag: string, version: string) =>
-    invoke<boolean>('api:openManualDownload', mirrorPrefix, tag, version),
   openExternal: (url: string) => invoke<boolean>('api:openExternal', url),
 
   // misc
@@ -123,7 +118,6 @@ const api = {
   onWatchChanged: (l: (w: WatchEntry[]) => void) => subscribe('watch:changed', l),
   onLogLine: (l: (line: string) => void) => subscribe('log:line', l),
   onUpdateProgress: (l: (p: UpdateProgress) => void) => subscribe('update:progress', l),
-  onMirrorResults: (l: (m: MirrorResult[]) => void) => subscribe('mirror:results', l),
   onWindowState: (l: (s: WindowState) => void) => subscribe('window:state', l)
 }
 

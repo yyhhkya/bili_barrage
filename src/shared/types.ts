@@ -88,13 +88,6 @@ export interface UpdateProgress {
   message: string
 }
 
-export interface MirrorResult {
-  name: string
-  prefix: string
-  latency: number
-  status: 'pending' | 'testing' | 'ok' | 'error'
-}
-
 /**
  * QR login poll result.
  * `pending` and `failed` are sentinels; anything else is an access key.
@@ -117,6 +110,5 @@ export interface PushEvents {
   'watch:changed': WatchEntry[]
   'log:line': string
   'update:progress': UpdateProgress
-  'mirror:results': MirrorResult[]
   'window:state': WindowState
 }

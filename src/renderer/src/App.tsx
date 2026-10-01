@@ -22,6 +22,7 @@ import { TasksPage } from './pages/Tasks'
 import { LogsPage } from './pages/Logs'
 import { UpdateBadge } from './components/app/UpdateBadge'
 import { TitleBar } from './components/app/TitleBar'
+import { SplashScreen } from './components/app/SplashScreen'
 
 type PageId = 'accounts' | 'send' | 'likes' | 'watch' | 'tasks' | 'logs'
 
@@ -227,6 +228,7 @@ export default function App(): React.ReactElement {
     <StoreProvider>
       <ToastProvider>
         <Shell />
+        <SplashScreen />
       </ToastProvider>
     </StoreProvider>
   )

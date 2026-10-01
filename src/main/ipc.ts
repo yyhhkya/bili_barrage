@@ -40,23 +40,16 @@ export function registerIpc(app: AppCore, userDataDir: string): void {
   const updater = new Updater(app.logger)
 
   // ------------------------------------------------------- window chrome
-  // The window is frameless, so these replace the OS title bar buttons.
+  // The window is frameless and fixed-size, so these replace the OS title bar
+  // buttons (minimise and close only — there is no maximise).
   handle('api:windowMinimize', () => {
     BrowserWindow.getFocusedWindow()?.minimize()
     return true
-  })
-  handle('api:windowToggleMaximize', () => {
-    const win = BrowserWindow.getFocusedWindow()
-    if (!win) return false
-    if (win.isMaximized()) win.unmaximize()
-    else win.maximize()
-    return win.isMaximized()
   })
   handle('api:windowClose', () => {
     BrowserWindow.getFocusedWindow()?.close()
     return true
   })
-  handle('api:windowIsMaximized', () => BrowserWindow.getFocusedWindow()?.isMaximized() ?? false)
 
   // Outbound pushes, replacing the renderer's polling timers.
   app.on('state:changed', (s) => broadcast('state:changed', s))

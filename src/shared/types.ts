@@ -100,15 +100,9 @@ export type LoginPollResult = 'pending' | 'failed' | string
 /** Result envelope for every invoke channel, so the renderer never sees a throw. */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
-export interface WindowState {
-  maximized: boolean
-  fullscreen: boolean
-}
-
 export interface PushEvents {
   'state:changed': AppState
   'watch:changed': WatchEntry[]
   'log:line': string
   'update:progress': UpdateProgress
-  'window:state': WindowState
 }

@@ -10,8 +10,9 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 760,
-    minWidth: 1000,
-    minHeight: 620,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     show: false,
     // Frameless: the renderer draws the whole title bar, including the
     // minimise/maximise/close buttons.
@@ -31,20 +32,6 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
-
-  // The renderer's maximise button needs to know the real state, which can also
-  // change via snap layouts / Win+Up / double-clicking the drag region.
-  const pushWindowState = (): void => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    mainWindow.webContents.send('window:state', {
-      maximized: mainWindow.isMaximized(),
-      fullscreen: mainWindow.isFullScreen()
-    })
-  }
-  mainWindow.on('maximize', pushWindowState)
-  mainWindow.on('unmaximize', pushWindowState)
-  mainWindow.on('enter-full-screen', pushWindowState)
-  mainWindow.on('leave-full-screen', pushWindowState)
 
   // External links open in the system browser, never in an app window.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

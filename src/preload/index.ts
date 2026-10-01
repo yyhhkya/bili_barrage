@@ -11,8 +11,7 @@ import type {
   Task,
   UpdateInfo,
   UpdateProgress,
-  WatchEntry,
-  WindowState
+  WatchEntry
 } from '../shared/types'
 
 /**
@@ -109,16 +108,13 @@ const api = {
 
   // frameless window chrome
   windowMinimize: () => invoke<boolean>('api:windowMinimize'),
-  windowToggleMaximize: () => invoke<boolean>('api:windowToggleMaximize'),
   windowClose: () => invoke<boolean>('api:windowClose'),
-  windowIsMaximized: () => invoke<boolean>('api:windowIsMaximized'),
 
   // push subscriptions
   onStateChanged: (l: (s: AppState) => void) => subscribe('state:changed', l),
   onWatchChanged: (l: (w: WatchEntry[]) => void) => subscribe('watch:changed', l),
   onLogLine: (l: (line: string) => void) => subscribe('log:line', l),
-  onUpdateProgress: (l: (p: UpdateProgress) => void) => subscribe('update:progress', l),
-  onWindowState: (l: (s: WindowState) => void) => subscribe('window:state', l)
+  onUpdateProgress: (l: (p: UpdateProgress) => void) => subscribe('update:progress', l)
 }
 
 export type BiliApi = typeof api

@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { Minus, Square, X, CornersOut } from '@phosphor-icons/react'
+import { Minus, X } from '@phosphor-icons/react'
 import { cn } from '../../lib/utils'
 // Vite inlines this as a data URL at build time, so the renderer stays free of
 // network loads and the CSP needs no exception.
@@ -10,25 +9,17 @@ import iconUrl from '../../../../../resources/icon.png'
  *
  * `-webkit-app-region: drag` makes the whole strip draggable; every interactive
  * child must opt back out with `no-drag`, otherwise the buttons cannot be
- * clicked. Double-clicking the drag region toggles maximise, which Windows
- * users expect and which the custom bar would otherwise lose.
+ * clicked. The window is fixed-size, so there is no maximise control and
+ * double-clicking the strip does nothing.
  *
  * The close button is the only destructive affordance in the chrome, so it is
  * the only one that turns red on hover.
  */
 export function TitleBar(): React.ReactElement {
-  const [maximized, setMaximized] = useState(false)
-
-  useEffect(() => {
-    void window.api.windowIsMaximized().then(setMaximized)
-    return window.api.onWindowState((s) => setMaximized(s.maximized))
-  }, [])
-
   return (
     <div
       className="flex h-9 shrink-0 items-center border-b border-line bg-surface select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      onDoubleClick={() => void window.api.windowToggleMaximize().then(setMaximized)}
     >
       <div className="flex items-center gap-2 pl-3">
         <img src={iconUrl} alt="" width={16} height={16} className="shrink-0 rounded-[4px]" />
@@ -52,21 +43,9 @@ export function TitleBar(): React.ReactElement {
       <div
         className="ml-auto flex h-full items-stretch"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        onDoubleClick={(e) => e.stopPropagation()}
       >
         <ChromeButton label="最小化" onClick={() => void window.api.windowMinimize()}>
           <Minus size={14} weight="bold" />
-        </ChromeButton>
-
-        <ChromeButton
-          label={maximized ? '还原' : '最大化'}
-          onClick={() => void window.api.windowToggleMaximize().then(setMaximized)}
-        >
-          {maximized ? (
-            <CornersOut size={13} weight="bold" />
-          ) : (
-            <Square size={11} weight="bold" />
-          )}
         </ChromeButton>
 
         <ChromeButton label="关闭" danger onClick={() => void window.api.windowClose()}>

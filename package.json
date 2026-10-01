@@ -1,6 +1,6 @@
 {
   "name": "bili-barrage",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "B站弹幕助手",
   "main": "./out/main/index.js",
   "author": "yyhhkya",

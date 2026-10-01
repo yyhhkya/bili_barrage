@@ -58,7 +58,7 @@ export function UpdateBadge(): React.ReactElement {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="press flex w-full items-center gap-1.5 rounded-control px-1 py-1 text-left text-[11.5px] text-accent-ink hover:bg-accent-wash"
+          className="press flex w-full items-center gap-1.5 rounded-control px-1 py-1 text-left text-[11.5px] text-ok hover:bg-ok-wash"
         >
           <ArrowCircleUp size={13} weight="fill" />
           有新版本 v{info.latest_version}
